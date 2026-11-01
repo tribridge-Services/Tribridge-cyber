@@ -10,9 +10,9 @@ Deno.serve(async (req) => {
   const { data: { user } } = await admin.auth.getUser((req.headers.get('Authorization') ?? '').replace('Bearer ', ''));
   if (!user) return reply({ message: 'Please log in again.' }, 401);
   const { request_id } = await req.json();
-  const { data: r }: any = await admin.from('requests').select('id, user_id, services(price), profiles(phone)').eq('id', request_id).single();
+  const { data: r }: any = await admin.from('requests').select('id, user_id, mode, services(price_live, price_full), profiles(phone)').eq('id', request_id).single();
   if (!r || r.user_id !== user.id) return reply({ message: 'Request not found.' }, 404);
-  const price = r.services?.price;
+  const price = r.mode === 'live' ? r.services?.price_live : r.services?.price_full;
   if (!price) return reply({ message: 'Fee not set yet. We will message you.' }, 400);
   let p = String(r.profiles?.phone ?? '').replace(/\D/g, '');
   if (p.startsWith('0')) p = '254' + p.slice(1);
