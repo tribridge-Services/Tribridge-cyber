@@ -84,3 +84,5 @@ h3{font-size:1.2rem;margin:0}
 .thread p.mine{margin-left:auto;background:#0e3a44}
 footer.f{border-top:1px solid var(--line2);margin-top:30px;padding-top:20px}
 .pol p,.pol li{color:var(--muted)}.pol h3{margin-top:18px;color:var(--text)}
+.pick{display:flex;gap:12px;align-items:flex-start;cursor:pointer}.pick input{width:auto;margin-top:6px}
+.grade{display:grid;grid-template-columns:1fr 70px auto auto;gap:8px;align-items:center}.grade select{padding:10px 6px}.grade label input{width:auto}

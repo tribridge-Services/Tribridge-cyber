@@ -13,6 +13,28 @@ const AWARE = 'I have read the Privacy Policy and I am aware of how Tribridge Cy
 const wa = (p) => 'https://wa.me/' + String(p).replace(/\D/g, '').replace(/^0/, '254');
 const priceOf = (r) => (r.mode === 'live' ? r.services?.price_live : r.services?.price_full);
 const ds = (d) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+const PTS = { A: 12, 'A-': 11, 'B+': 10, B: 9, 'B-': 8, 'C+': 7, C: 6, 'C-': 5, 'D+': 4, D: 3, 'D-': 2, E: 1 };
+const SUBJECTS = {
+  Compulsory: ['English', 'Kiswahili', 'Mathematics'],
+  Sciences: ['Biology', 'Chemistry', 'Physics'],
+  Humanities: ['History and Government', 'Geography', 'CRE', 'IRE', 'HRE'],
+  'Technical and applied': ['Home Science', 'Art and Design', 'Agriculture', 'Computer Studies', 'Aviation', 'Woodwork', 'Metalwork', 'Building Construction', 'Power Mechanics', 'Electricity', 'Drawing and Design'],
+  'Languages and others': ['French', 'German', 'Arabic', 'Kenya Sign Language', 'Music', 'Business Studies'],
+};
+const norm = (s) => String(s).trim().toLowerCase();
+function score(p, pts, t) {
+  const slots = String(p.req).split(';').map((s) => s.split('/').map(norm)).sort((x, y) => (x.includes('*') ? 99 : x.length) - (y.includes('*') ? 99 : y.length));
+  const used = new Set();
+  let r = 0;
+  for (const o of slots) {
+    let bi = -1;
+    pts.forEach((g, i) => { if (!used.has(i) && (o.includes('*') || o.includes(norm(g.name))) && (bi < 0 || g.pts > pts[bi].pts)) bi = i; });
+    if (bi < 0) return null;
+    used.add(bi);
+    r += pts[bi].pts;
+  }
+  return Math.sqrt((r / 48) * (t / 84)) * 48;
+}
 const IC = {
   home: 'M3 11l9-8 9 8|M5 10v10h5v-6h4v6h5V10', book: 'M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z|M4 19V5|M19 17H6', grid: 'M4 4h7v7H4z|M13 4h7v7h-7z|M4 13h7v7H4z|M13 13h7v7h-7z',
   list: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01', user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z|M4 21a8 8 0 0 1 16 0', menu: 'M4 6h16M4 12h16M4 18h16', x: 'M6 6l12 12M18 6L6 18',
@@ -164,7 +186,7 @@ function Services({ services, me, go, onApply }) {
           <p className="muted">{s.description}</p>
           {s.note && <p className="note">Note: {s.note}</p>}
           {s.price_live && s.price_full && <p className="note">Or live help, where we guide you while you do it: KES {s.price_live}</p>}
-          {s.soon ? <span className="tag">Opening soon</span> : <button className="cta sm" onClick={() => onApply(s)}>Apply</button>}
+          {s.soon ? <span className="tag">Opening soon</span> : s.id === 'analyzer' ? <button className="cta sm" onClick={() => go('analyzer')}>Open</button> : <button className="cta sm" onClick={() => onApply(s)}>Apply</button>}
         </div>
       ))}
       <h2>Free help</h2>
@@ -175,10 +197,10 @@ function Services({ services, me, go, onApply }) {
   );
 }
 
-function Apply({ s, me, onClose, onDone }) {
+function Apply({ s, me, prefill, onClose, onDone }) {
   const fields = s.fields || [];
   const [mode, setMode] = useState(s.price_live ? 'live' : 'full');
-  const [form, setForm] = useState(() => Object.fromEntries(fields.map(([k]) => [k, k === 'phone' ? me.phone : k === 'email' ? me.email || '' : ''])));
+  const [form, setForm] = useState(() => ({ ...Object.fromEntries(fields.map(([k]) => [k, k === 'phone' ? me.phone : k === 'email' ? me.email || '' : ''])), ...(prefill || {}) }));
   const [ok, setOk] = useState(false);
   const [aw, setAw] = useState(false);
   const [err, setErr] = useState('');
@@ -267,40 +289,63 @@ function Files({ uid }) {
   );
 }
 
+function PayBox({ r, price, instr, onSent }) {
+  const [code, setCode] = useState('');
+  const [msg, setMsg] = useState('');
+  async function send() {
+    if (!/^[A-Za-z0-9]{10}$/.test(code.trim())) return setMsg('The M-Pesa code has 10 letters and numbers. Copy it from your M-Pesa SMS.');
+    const { error } = await sb.rpc('submit_payment', { rid: r.id, code });
+    if (error) return setMsg(error.message.includes('duplicate') ? 'That code was already used.' : 'Could not send. Check the code and try again.');
+    notify({ kind: 'payment', request_id: r.id });
+    setCode('');
+    onSent();
+  }
+  return (
+    <div>
+      <p className="note">Pay first, then we start. Send KES {price} by M-Pesa:</p>
+      <p className="toast">{instr}</p>
+      <input placeholder="M-Pesa code, for example SJK4ABC123" value={code} onChange={(e) => setCode(e.target.value)} />
+      {msg && <p className="err">{msg}</p>}
+      <button className="cta sm" onClick={send}>I have paid</button>
+    </div>
+  );
+}
+
 function Requests({ me }) {
   const [rs, setRs] = useState([]);
   const [ps, setPs] = useState([]);
-  const [msg, setMsg] = useState('');
+  const [instr, setInstr] = useState('');
   const load = async () => {
     const r = await sb.from('requests').select('*, services(title, price_live, price_full)').eq('user_id', me.id).order('created_at');
     setRs(r.data || []);
-    const p = await sb.from('payments').select('*').eq('user_id', me.id);
+    const p = await sb.from('payments').select('*').eq('user_id', me.id).order('created_at');
     setPs(p.data || []);
   };
   useEffect(() => {
     load();
+    sb.from('settings').select('value').eq('key', 'pay_instructions').maybeSingle().then(({ data }) => setInstr(data?.value || 'Payment details will be shown here soon.'));
     const ch = sb.channel('mine').on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, load).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'requests' }, load).subscribe();
     return () => { sb.removeChannel(ch); };
   }, []);
-  async function pay(id) {
-    const { data, error } = await sb.functions.invoke('stk-push', { body: { request_id: id } });
-    setMsg(error ? 'Payment could not start. Check your phone number and try again.' : data.message);
-  }
   return (
     <>
       <p className="eyebrow">My requests</p>
       <h1>Track your applications</h1>
       <p className="lead">See payment and progress for every service you requested.</p>
-      {msg && <p className="toast">{msg}</p>}
       {rs.length === 0 && <p className="muted">Nothing yet. Open Services and tap Apply.</p>}
       {rs.map((r) => {
-        const paid = ps.some((p) => p.request_id === r.id && p.status === 'paid');
+        const mine = ps.filter((p) => p.request_id === r.id);
+        const paid = mine.some((p) => p.status === 'paid');
+        const wait = mine.find((p) => p.status === 'pending');
+        const bad = mine.some((p) => p.status === 'failed');
         const price = priceOf(r);
         return (
           <div className="card" key={r.id}>
             <div className="row"><h3>{r.services?.title}</h3><Status s={r.status} /></div>
-            <p className="note">{r.mode === 'live' ? 'Live help' : 'Done for you'}, applied {ds(r.created_at)}{paid ? ', paid' : ''}</p>
-            {!paid && price && (<><p className="note">Pay first, then we start.</p><button className="cta sm" onClick={() => pay(r.id)}>Pay KES {price}</button></>)}
+            <p className="note">{r.mode === 'live' ? 'Live help' : 'Done for you'}, applied {ds(r.created_at)}</p>
+            {paid ? <p className="toast">Paid. Thank you.</p> : wait ? <p className="toast">Payment sent (code {wait.receipt}). Waiting for approval.</p> : price ? (
+              <>{bad && <p className="err">Your last payment was not approved. Check the code and try again.</p>}<PayBox r={r} price={price} instr={instr} onSent={load} /></>
+            ) : <p className="note">We will confirm the fee with you.</p>}
             <Toggle label="Messages"><Thread id={r.id} /></Toggle>
           </div>
         );
@@ -309,14 +354,133 @@ function Requests({ me }) {
   );
 }
 
-const Soon = ({ go }) => (
-  <>
-    <p className="eyebrow">Course analyzer</p><h1>Cluster points and your courses</h1>
-    <div className="card paid"><div className="row"><h3>Opening soon</h3><span className="px">KES 100</span></div>
-      <p>Enter your grades and see your cluster points and the courses and universities you qualify for.</p></div>
-    <button className="ghost" onClick={() => go('home')}>Back home</button>
-  </>
-);
+function CalcPay({ price, instr, claims, onSent }) {
+  const [code, setCode] = useState('');
+  const [msg, setMsg] = useState('');
+  const wait = claims.find((c) => c.status === 'pending');
+  async function send() {
+    if (!/^[A-Za-z0-9]{10}$/.test(code.trim())) return setMsg('The M-Pesa code has 10 letters and numbers. Copy it from your M-Pesa SMS.');
+    const { error } = await sb.rpc('submit_calc_payment', { code });
+    if (error) return setMsg(error.message.includes('duplicate') ? 'That code was already used.' : 'Could not send. Check the code and try again.');
+    notify({ kind: 'calc' });
+    setCode('');
+    onSent();
+  }
+  if (wait) return <p className="toast">Payment sent (code {wait.receipt}). Waiting for approval.</p>;
+  return (
+    <div>
+      {claims.some((c) => c.status === 'failed') && <p className="err">Your last payment was not approved. Check the code and try again.</p>}
+      <p className="note">Send KES {price} by M-Pesa:</p>
+      <p className="toast">{instr}</p>
+      <input placeholder="M-Pesa code, for example SJK4ABC123" value={code} onChange={(e) => setCode(e.target.value)} />
+      {msg && <p className="err">{msg}</p>}
+      <button className="cta sm" onClick={send}>I have paid</button>
+    </div>
+  );
+}
+
+function Analyzer({ me, reload, services, onApply }) {
+  const unlocked = me.role === 'admin' || me.calc_unlocked;
+  const svc = services.find((s) => s.id === 'analyzer');
+  const kuccps = services.find((s) => s.id === 'kuccps');
+  const [instr, setInstr] = useState('');
+  const [claims, setClaims] = useState([]);
+  const [rows, setRows] = useState(['English', 'Kiswahili', 'Mathematics', 'Biology', 'Chemistry', 'Physics', 'Geography'].map((name, i) => ({ name, g: 'B', c: i < 4 })));
+  const [progs, setProgs] = useState(null);
+  const [flt, setFlt] = useState('likely');
+  const [order, setOrder] = useState('best');
+  const [q, setQ] = useState('');
+  const [sel, setSel] = useState([]);
+  const [lim, setLim] = useState(40);
+  const loadClaims = () => sb.from('payments').select('*').eq('user_id', me.id).eq('purpose', 'calculator').then(({ data }) => setClaims(data || []));
+  useEffect(() => {
+    reload();
+    loadClaims();
+    sb.from('settings').select('value').eq('key', 'pay_instructions').maybeSingle().then(({ data }) => setInstr(data?.value || 'Payment details will be shown here soon.'));
+    const ch = sb.channel('calc').on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => { loadClaims(); reload(); }).subscribe();
+    return () => { sb.removeChannel(ch); };
+  }, []);
+  const upd = (i, p) => setRows(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
+  const pts = rows.map((r) => ({ name: r.name, pts: PTS[r.g] }));
+  const t = pts.map((x) => x.pts).sort((x, y) => y - x).slice(0, 7).reduce((x, y) => x + y, 0);
+  const cl = rows.filter((r) => r.c);
+  const r4 = cl.reduce((x, r) => x + PTS[r.g], 0);
+  const C = cl.length === 4 && rows.length >= 7 ? Math.sqrt((r4 / 48) * (t / 84)) * 48 : null;
+  async function find() {
+    let all = [];
+    let from = 0;
+    for (;;) {
+      const { data } = await sb.from('programmes').select('*').range(from, from + 999);
+      all = all.concat(data || []);
+      if (!data || data.length < 1000) break;
+      from += 1000;
+    }
+    setLim(40);
+    setProgs(all.map((p) => ({ ...p, score: score(p, pts, t) })).filter((p) => p.score !== null).map((p) => ({ ...p, diff: p.score - Number(p.cutoff) })));
+  }
+  const list = (progs || [])
+    .filter((p) => (flt === 'likely' ? p.diff >= 0 : p.diff >= -2 && p.diff < 0))
+    .filter((p) => (p.programme + ' ' + p.institution).toLowerCase().includes(q.toLowerCase()))
+    .sort((x, y) => (order === 'best' ? Number(y.cutoff) - Number(x.cutoff) : y.diff - x.diff));
+  if (!unlocked) {
+    return (
+      <>
+        <p className="eyebrow">Course analyzer</p><h1>Cluster points and your courses</h1>
+        <p className="lead">{svc?.description}</p>
+        <div className="card paid">
+          <div className="row"><h3>Unlock the analyzer</h3><span className="px">KES {svc?.price_full || 100}</span></div>
+          <p className="note">One payment unlocks the cluster points calculator and the list of courses you qualify for. We unlock it after we approve your payment.</p>
+          <CalcPay price={svc?.price_full || 100} instr={instr} claims={claims} onSent={loadClaims} />
+        </div>
+      </>
+    );
+  }
+  return (
+    <>
+      <p className="eyebrow">Course analyzer</p><h1>Cluster points and your courses</h1>
+      <p className="muted">Add every subject you sat and its grade. Tick the four subjects for the cluster. We use your best seven for the total.</p>
+      {rows.map((r, i) => (
+        <div className="grade" key={i}>
+          <select value={r.name} onChange={(e) => upd(i, { name: e.target.value })}>
+            {Object.entries(SUBJECTS).map(([grp, l]) => <optgroup key={grp} label={grp}>{l.map((n) => <option key={n}>{n}</option>)}</optgroup>)}
+          </select>
+          <select value={r.g} onChange={(e) => upd(i, { g: e.target.value })}>{Object.keys(PTS).map((g) => <option key={g}>{g}</option>)}</select>
+          <label className="note"><input type="checkbox" checked={r.c} onChange={(e) => upd(i, { c: e.target.checked })} /> Cluster</label>
+          <button className="link" onClick={() => setRows(rows.filter((_, j) => j !== i))}>Remove</button>
+        </div>
+      ))}
+      <button className="link" onClick={() => setRows([...rows, { name: 'English', g: 'B', c: false }])}>Add a subject</button>
+      <div className="card paid">
+        <p className="note">Best seven subjects: {t} of 84</p>
+        {C ? <h3>Cluster points about {C.toFixed(3)} of 48 (estimate)</h3> : <p className="muted">Add at least 7 subjects and tick exactly four for the cluster.</p>}
+        <p className="note">KUCCPS works out the official weighted points from KNEC data. Check yours in the KUCCPS portal.</p>
+      </div>
+      <button className="cta full" onClick={find}>Find my courses</button>
+      {progs && (
+        <>
+          <div className="seg">
+            {[['likely', 'Likely'], ['near', 'Borderline']].map(([k, l]) => <button key={k} className={flt === k ? 'on' : ''} onClick={() => setFlt(k)}>{l}</button>)}
+            {[['best', 'Best first'], ['safe', 'Safest first']].map(([k, l]) => <button key={k} className={order === k ? 'on' : ''} onClick={() => setOrder(k)}>{l}</button>)}
+          </div>
+          <input placeholder="Search a course or university" value={q} onChange={(e) => setQ(e.target.value)} />
+          <p className="note">{list.length} courses. Tick the ones you want to apply for.</p>
+          {progs.length === 0 && <p className="muted">The course list is being updated. Check back soon.</p>}
+          {list.slice(0, lim).map((p) => {
+            const k = `${p.programme}, ${p.institution}`;
+            return (
+              <label className="card pick" key={p.id}>
+                <input type="checkbox" checked={sel.includes(k)} onChange={() => setSel(sel.includes(k) ? sel.filter((x) => x !== k) : [...sel, k])} />
+                <span><b>{p.programme}</b><span className="note"><br />{p.institution}, cut-off {p.cutoff}, your estimate {p.score.toFixed(1)}</span></span>
+              </label>
+            );
+          })}
+          {list.length > lim && <button className="link" onClick={() => setLim(lim + 40)}>Show more</button>}
+          {sel.length > 0 && kuccps && <button className="cta full" onClick={() => onApply(kuccps, { choices: sel.join('; ') })}>Use {sel.length} selected courses in my KUCCPS application</button>}
+        </>
+      )}
+    </>
+  );
+}
 
 function Account({ me, reload, go }) {
   const [f, setF] = useState({ full_name: me.full_name || '', username: me.username || '', phone: me.phone || '', dob: me.dob || '', county: me.county || '', kcse_index: me.kcse_index || '', parent_phone: me.parent_phone || '' });
@@ -437,7 +601,7 @@ function Drawer({ me, page, admin, go, onClose }) {
   useEffect(() => {
     if (me) sb.from('requests').select('id, status, created_at, services(title)').eq('user_id', me.id).order('created_at').then(({ data }) => setRs(data || []));
   }, []);
-  const items = [['home', 'Home', 'home'], ['guide', 'Guide', 'book'], ['services', 'Services', 'grid'], ...(me ? [['requests', 'My requests', 'list']] : []), ['analyzer', 'Course analyzer', 'calc', 1], ...(me ? [['news', 'Announcements', 'bell'], ['feedback', 'Feedback', 'chat'], ['account', 'My account', 'user']] : []), ['privacy', 'Privacy policy', 'shield'], ...(admin ? [['admin', 'Admin', 'id']] : [])];
+  const items = [['home', 'Home', 'home'], ['guide', 'Guide', 'book'], ['services', 'Services', 'grid'], ...(me ? [['requests', 'My requests', 'list']] : []), ['analyzer', 'Course analyzer', 'calc'], ...(me ? [['news', 'Announcements', 'bell'], ['feedback', 'Feedback', 'chat'], ['account', 'My account', 'user']] : []), ['privacy', 'Privacy policy', 'shield'], ...(admin ? [['admin', 'Admin', 'id']] : [])];
   return (
     <>
       <div className="scrim" onClick={onClose} />
@@ -456,6 +620,25 @@ function Drawer({ me, page, admin, go, onClose }) {
         {me ? <button className="out" onClick={() => { sb.auth.signOut(); onClose(); }}><Ic n="out" /> Sign out</button> : <button className="cta full" onClick={() => go('auth')}>Sign in / Join</button>}
       </aside>
     </>
+  );
+}
+
+function PayInfo() {
+  const [v, setV] = useState('');
+  const [m, setM] = useState('');
+  useEffect(() => { sb.from('settings').select('value').eq('key', 'pay_instructions').maybeSingle().then(({ data }) => setV(data?.value || '')); }, []);
+  async function save() {
+    const { error } = await sb.from('settings').upsert({ key: 'pay_instructions', value: v });
+    setM(error ? error.message : 'Saved. Students see this when they pay.');
+  }
+  return (
+    <div className="card">
+      <h3>Payment instructions</h3>
+      <p className="note">Students see this when they pay. Example: Send to Till 123456, name Tribridge Cyber.</p>
+      <textarea value={v} onChange={(e) => setV(e.target.value)} />
+      <button className="cta sm" onClick={save}>Save</button>
+      {m && <p className="toast">{m}</p>}
+    </div>
   );
 }
 
@@ -496,7 +679,7 @@ function Admin({ services, reload }) {
     setReqs(r.data || []);
     const f = await sb.from('feedback').select('*, profiles(username)').order('created_at', { ascending: false }).limit(30);
     setFb(f.data || []);
-    const p = await sb.from('payments').select('*');
+    const p = await sb.from('payments').select('*, profiles(full_name, username)');
     setPays(p.data || []);
     const n = await sb.from('announcements').select('*').order('created_at', { ascending: false });
     setNews(n.data || []);
@@ -507,6 +690,8 @@ function Admin({ services, reload }) {
     return () => { sb.removeChannel(ch); };
   }, []);
   const setStatus = async (id, status) => { await sb.from('requests').update({ status }).eq('id', id); load(); };
+  const payOk = async (p, r) => { await sb.from('payments').update({ status: 'paid' }).eq('id', p.id); if (r.status === 'new') await sb.from('requests').update({ status: 'in_progress' }).eq('id', r.id); load(); };
+  const payNo = async (p) => { await sb.from('payments').update({ status: 'failed' }).eq('id', p.id); load(); };
   async function polish() {
     if (!b.trim()) return;
     setMsg('Polishing...');
@@ -527,26 +712,26 @@ function Admin({ services, reload }) {
   async function del(id) {
     if (window.confirm('Delete this announcement?')) { await sb.from('announcements').delete().eq('id', id); load(); }
   }
-  const shown = reqs.filter((r) => flt === 'all' || r.status === flt);
+  const shown = reqs.filter((r) => flt === 'all' || (flt === 'pay' ? pays.some((p) => p.request_id === r.id && p.status === 'pending') : r.status === flt));
   return (
     <>
       <p className="eyebrow">Admin</p><h1>Control room</h1>
-      <div className="seg">{[['requests', 'Requests'], ['news', 'Announcements'], ['prices', 'Prices'], ['fb', 'Feedback']].map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
+      <div className="seg">{[['requests', 'Requests'], ['calc', 'Analyzer'], ['news', 'Announcements'], ['prices', 'Prices'], ['fb', 'Feedback']].map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
       {tab === 'requests' && (
         <>
           <p className="note">Oldest application first. {reqs.filter((r) => r.status === 'new').length} new.</p>
-          <div className="seg">{['all', 'new', 'in_progress', 'done', 'cancelled'].map((s) => <button key={s} className={flt === s ? 'on' : ''} onClick={() => setFlt(s)}>{s.replace('_', ' ')}</button>)}</div>
+          <div className="seg">{['all', 'pay', 'new', 'in_progress', 'done', 'cancelled'].map((s) => <button key={s} className={flt === s ? 'on' : ''} onClick={() => setFlt(s)}>{s === 'pay' ? 'to approve' : s.replace('_', ' ')}</button>)}</div>
           <div className="tbl">
             <div className="tr h"><span>#</span><span>Date</span><span>Name and service</span><span>Status</span></div>
             {shown.map((r, i) => (
               <div key={r.id}>
                 <button className="tr" onClick={() => setOpen(open === r.id ? null : r.id)}>
-                  <span>{i + 1}</span><span>{ds(r.created_at)}</span><span><b>{r.profiles?.full_name}</b><br /><span className="note">{r.services?.title}</span></span><Status s={r.status} />
+                  <span>{i + 1}</span><span>{ds(r.created_at)}</span><span><b>{r.profiles?.full_name}</b><br /><span className="note">{r.services?.title}{pays.some((p) => p.request_id === r.id && p.status === 'pending') ? ' | payment to approve' : ''}</span></span><Status s={r.status} />
                 </button>
                 {open === r.id && (
                   <div className="detail">
                     <p className="note">{r.mode === 'live' ? 'Live help' : 'Done for you'}{priceOf(r) ? `, KES ${priceOf(r)}` : ''} | @{r.profiles?.username}</p>
-                    {pays.filter((p) => p.request_id === r.id && p.status === 'paid').map((p) => <p key={p.id} className="toast">Paid, receipt {p.receipt}</p>)}
+                    {pays.filter((p) => p.request_id === r.id).map((p) => (<div key={p.id} className="toast"><p>KES {p.amount}, code {p.receipt || 'none'} ({p.status})</p>{p.status === 'pending' && <div className="seg"><button className="on" onClick={() => payOk(p, r)}>Approve</button><button onClick={() => payNo(p)}>Reject</button></div>}</div>))}
                     {(r.services?.fields || []).map(([k, label]) => (r.form?.[k] ? <p key={k}><span className="muted">{label}: </span>{r.form[k]}</p> : null))}
                     {r.consent_at && <p className="note">Consent given {new Date(r.consent_at).toLocaleDateString()}</p>}
                     <a href={wa(r.profiles?.phone)}>Message on WhatsApp</a>
@@ -586,7 +771,23 @@ function Admin({ services, reload }) {
           ))}
         </>
       )}
-      {tab === 'prices' && <Prices services={services} reload={reload} />}
+      {tab === 'calc' && (
+        <>
+          <p className="note">Analyzer payments. Check each M-Pesa code against your M-Pesa messages before approving.</p>
+          {pays.filter((p) => p.purpose === 'calculator' && p.status === 'pending').length === 0 && <p className="muted">No analyzer payments waiting.</p>}
+          {pays.filter((p) => p.purpose === 'calculator' && p.status === 'pending').map((p) => (
+            <div className="card" key={p.id}>
+              <div className="row"><h3>{p.profiles?.full_name}</h3><span className="px">KES {p.amount}</span></div>
+              <p className="note">@{p.profiles?.username}, {ds(p.created_at)}</p>
+              <p>M-Pesa code: <b>{p.receipt}</b></p>
+              <button className="cta sm" onClick={() => payOk(p, { status: '' })}>Approve</button> <button className="link" onClick={() => payNo(p)}>Reject</button>
+            </div>
+          ))}
+          <h2>Unlocked students</h2>
+          {pays.filter((p) => p.purpose === 'calculator' && p.status === 'paid').map((p) => <p key={p.id} className="note">{ds(p.created_at)}, {p.profiles?.full_name}, {p.receipt}</p>)}
+        </>
+      )}
+      {tab === 'prices' && (<><PayInfo /><Prices services={services} reload={reload} /></>)}
       {tab === 'fb' && fb.map((x) => <div className="card" key={x.id}><p>{x.message}</p><p className="note">@{x.profiles?.username}</p></div>)}
     </>
   );
@@ -629,6 +830,7 @@ export default function App() {
   const [page, setPage] = useState('home');
   const [menu, setMenu] = useState(false);
   const [applying, setApplying] = useState(null);
+  const [pre, setPre] = useState(null);
   const uid = session?.user?.id;
   const go = (p) => { setPage(p); setMenu(false); setApplying(null); window.scrollTo(0, 0); };
   const loadMe = () => sb.from('profiles').select('*').eq('id', uid).single().then(({ data }) => setMe(data));
@@ -664,7 +866,7 @@ export default function App() {
   const admin = me?.role === 'admin' && isApp;
   const gated = ['requests', 'account', 'news', 'feedback'].includes(page) || (page === 'admin' && !admin);
   const view = !me && gated ? 'auth' : page;
-  const onApply = (s) => (me ? setApplying(s) : go('auth'));
+  const onApply = (s, pf) => { if (!me) return go('auth'); setPre(pf || null); setApplying(s); };
   const tabs = [['home', 'Home', 'home'], ['guide', 'Guide', 'book'], ['services', 'Services', 'grid'], [me ? 'requests' : 'auth', 'Requests', 'list'], [me ? 'account' : 'auth', 'Account', 'user']];
   return (
     <>
@@ -680,7 +882,7 @@ export default function App() {
         {view === 'guide' && <Guide go={go} />}
         {view === 'services' && <Services services={services} me={me} go={go} onApply={onApply} />}
         {view === 'requests' && me && <Requests me={me} />}
-        {view === 'analyzer' && <Soon go={go} />}
+        {view === 'analyzer' && (me ? <Analyzer me={me} reload={loadMe} services={services} onApply={onApply} /> : <Auth go={go} />)}
         {view === 'news' && <News news={news} />}
         {view === 'feedback' && me && <Feedback me={me} />}
         {view === 'account' && me && <Account me={me} reload={loadMe} go={go} />}
@@ -692,7 +894,7 @@ export default function App() {
         {tabs.map(([k, l, ic]) => (<button key={l} className={page === k ? 'on' : ''} onClick={() => go(k)}><Ic n={ic} />{l}</button>))}
       </nav>
       {menu && <Drawer me={me} page={page} admin={admin} go={go} onClose={() => setMenu(false)} />}
-      {applying && me && <Apply s={applying} me={me} onClose={() => setApplying(null)} onDone={() => go('requests')} />}
+      {applying && me && <Apply s={applying} me={me} prefill={pre} onClose={() => setApplying(null)} onDone={() => go('requests')} />}
     </>
   );
 }

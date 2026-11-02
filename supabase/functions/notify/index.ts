@@ -30,11 +30,16 @@ Deno.serve(async (req) => {
   if (input.kind === 'announcement' && me?.role === 'admin') {
     title = String(input.title ?? 'Tribridge Cyber');
     body = String(input.body ?? '').slice(0, 180);
-  } else if (input.kind === 'request') {
+  } else if (input.kind === 'request' || input.kind === 'payment') {
     const { data: r }: any = await admin.from('requests').select('user_id, services(title)').eq('id', input.request_id).single();
     if (!r || r.user_id !== user.id) return reply({ ok: false }, 403);
-    title = 'New request';
+    title = input.kind === 'payment' ? 'Payment to approve' : 'New request';
     body = r.services?.title ?? 'A student applied';
+    const { data: a }: any = await admin.from('profiles').select('id').eq('role', 'admin');
+    ids = (a ?? []).map((x: any) => x.id);
+  } else if (input.kind === 'calc') {
+    title = 'Payment to approve';
+    body = 'Course analyzer';
     const { data: a }: any = await admin.from('profiles').select('id').eq('role', 'admin');
     ids = (a ?? []).map((x: any) => x.id);
   } else return reply({ ok: false }, 400);
