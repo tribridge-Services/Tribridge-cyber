@@ -7,140 +7,180 @@ const sb = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_
 const isApp = Capacitor.isNativePlatform();
 const PUSH = isApp && import.meta.env.VITE_PUSH === '1';
 const notify = (body) => sb.functions.invoke('notify', { body }).catch(() => {});
-const PTS = { A: 12, 'A-': 11, 'B+': 10, B: 9, 'B-': 8, 'C+': 7, C: 6, 'C-': 5, 'D+': 4, D: 3, 'D-': 2, E: 1 };
-const SUBJECTS = {
-  Compulsory: ['English', 'Kiswahili', 'Mathematics'],
-  Sciences: ['Biology', 'Chemistry', 'Physics'],
-  Humanities: ['History and Government', 'Geography', 'CRE', 'IRE', 'HRE'],
-  'Technical and applied': ['Home Science', 'Art and Design', 'Agriculture', 'Computer Studies', 'Aviation', 'Woodwork', 'Metalwork', 'Building Construction', 'Power Mechanics', 'Electricity', 'Drawing and Design'],
-  'Languages and others': ['French', 'German', 'Arabic', 'Kenya Sign Language', 'Music', 'Business Studies'],
-};
 const CATS = [['id_front', 'National ID, front'], ['id_back', 'National ID, back'], ['birth', 'Birth certificate'], ['results', 'KCSE results slip'], ['photo', 'Passport photo'], ['admission', 'Admission letter'], ['other', 'Other']];
-const CONSENT_UP = 'I agree that Tribridge Cyber may collect, store and process my details and documents only to help me with my applications. I am 18 or older, or my parent or guardian agrees.';
-const CONSENT_REQ = 'I consent to Tribridge Cyber handling and processing the details and documents I submit for this request. I confirm the details are true.';
+const CONSENT = 'I consent to Tribridge Cyber handling and processing the details and documents I give, only to help me with my applications. I confirm the details are true. I am 18 or older, or my parent or guardian agrees.';
+const AWARE = 'I have read the Privacy Policy and I am aware of how Tribridge Cyber handles my data.';
 const wa = (p) => 'https://wa.me/' + String(p).replace(/\D/g, '').replace(/^0/, '254');
 const priceOf = (r) => (r.mode === 'live' ? r.services?.price_live : r.services?.price_full);
-const from = (s) => (s.price_live ? `From KES ${s.price_live}` : s.price_full ? `KES ${s.price_full}` : 'Price soon');
+const ds = (d) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+const IC = {
+  home: 'M3 11l9-8 9 8|M5 10v10h5v-6h4v6h5V10', book: 'M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z|M4 19V5|M19 17H6', grid: 'M4 4h7v7H4z|M13 4h7v7h-7z|M4 13h7v7H4z|M13 13h7v7h-7z',
+  list: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01', user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z|M4 21a8 8 0 0 1 16 0', menu: 'M4 6h16M4 12h16M4 18h16', x: 'M6 6l12 12M18 6L6 18',
+  ok: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z|M8 12l3 3 5-6', calc: 'M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z|M8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01',
+  bell: 'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9|M10 21a2 2 0 0 0 4 0', chat: 'M4 5h16v11H9l-5 4z', out: 'M9 4H5v16h4|M16 8l4 4-4 4|M20 12H9', login: 'M15 4h4v16h-4|M10 8l4 4-4 4|M14 12H4',
+  shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z', id: 'M3 6h18v12H3z|M7 10h4v4H7z|M14 10h4M14 14h4', bank: 'M3 9l9-5 9 5|M5 9v9M9 9v9M15 9v9M19 9v9M3 20h18',
+  doc: 'M6 3h9l4 4v14H6z|M14 3v5h5M9 13h6M9 17h6', wallet: 'M3 7h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z|M3 7l2-3h12M16 14h2', heart: 'M12 20s-8-5-8-11a4.5 4.5 0 0 1 8-2.5A4.5 4.5 0 0 1 20 9c0 6-8 11-8 11z', cap: 'M2 9l10-5 10 5-10 5z|M6 11v5c3 2.5 9 2.5 12 0v-5',
+};
+function Ic({ n, s = 22 }) {
+  return (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {(IC[n] || IC.grid).split('|').map((d, i) => <path key={i} d={d} />)}
+    </svg>
+  );
+}
+const GUIDE = [
+  { t: 'Apply for your National ID', ic: 'id', when: 'Right after exams (once you are 18)', d: 'Your ID unlocks everything else: KRA PIN, bank account, HEF, SIM registration and jobs.', need: ['Birth certificate', 'Parent ID copies', 'School leaving letter or KCSE index number'], help: 'Fingerprints are taken in person at your local registration office, so we guide you on what to carry and where to go. Free.' },
+  { t: 'Create your eCitizen account', ic: 'bank', when: 'Once you have your ID', d: 'The government portal for Good Conduct, passports, SHA and more.', need: ['ID number', 'Phone number', 'Email address'], help: 'We set it up and verify it for you online.', svc: 1 },
+  { t: 'Get your KRA PIN', ic: 'doc', when: 'Once you have your ID', d: 'Required for HEF, bank accounts, jobs and business.', need: ['ID number', 'Email address', 'Phone number'], help: 'We register you on iTax and send you the PIN certificate.', svc: 1 },
+  { t: 'Open a bank or M-Pesa account', ic: 'wallet', when: 'Once you have your ID', d: 'HEF loans and scholarships are paid into your own account.', need: ['ID', 'KRA PIN (most banks)', 'Passport photo'], help: 'We advise on student-friendly accounts and what to carry. Free.' },
+  { t: 'Register for SHA', ic: 'heart', when: 'Anytime', d: 'National health cover through the Social Health Authority. Universities ask for proof when you report.', need: ['ID number', 'Phone number'], help: 'We register you online.', svc: 1 },
+  { t: 'Check your KCSE results', ic: 'list', when: 'Usually January', d: 'Results come out through the KNEC SMS service and portal.', need: ['KCSE index number'], help: 'We alert you the moment results are out and explain your next steps. Free.' },
+  { t: 'Know your cluster points', ic: 'calc', when: 'After results', d: 'Cluster points decide which degree courses you qualify for at each university.', need: ['Your subject grades or a photo of your results slip'], help: 'Our course analyzer calculates them and lists courses you qualify for.', svc: 1 },
+  { t: 'Apply through KUCCPS', ic: 'cap', when: 'Opens after results (April to May this year)', d: 'Choose university and TVET courses on the KUCCPS student portal. KMTC has its own windows.', need: ['KCSE index number and year', 'Birth certificate number', 'Email and phone'], help: 'We help pick smart choices and submit them for you, plus revisions.', svc: 1 },
+  { t: 'Apply for HEF funding', ic: 'book', when: 'After placement', d: 'Government scholarships and HELB loans for university and TVET, applied for on the HEF portal.', need: ['ID', 'KRA PIN', 'Admission letter', 'Parent details'], help: 'We fill in and submit your application.', svc: 1 },
+  { t: 'Certificate of Good Conduct', ic: 'shield', when: 'When needed for jobs or travel', d: 'Applied for on eCitizen; fingerprints taken at a DCI office.', need: ['ID', 'eCitizen account', 'Government fee'], help: 'We apply and book your appointment.', svc: 1 },
+  { t: 'Other paths', ic: 'grid', when: 'Ongoing', d: 'KMTC, teacher training, TVET colleges, driving school and short courses are great options too.', need: ['KCSE results'], help: 'Free advice on every path, and we can apply to colleges for you.', svc: 1 },
+];
 
 function Logo({ size = 40 }) {
   return (
     <svg width={size} height={Math.round(size * 0.84)} viewBox="0 0 120 100" role="img" aria-label="Tribridge Cyber logo">
       <defs>
-        <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#2ec4b6" />
-          <stop offset="1" stopColor="#e7c38a" />
-        </linearGradient>
-        <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-          <feGaussianBlur stdDeviation="2.2" result="b" />
-          <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-        </filter>
+        <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#00e5ff" /><stop offset="1" stopColor="#e7c38a" /></linearGradient>
+        <filter id="glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="2.2" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
       </defs>
       <g filter="url(#glow)">
         <g fill="none" stroke="url(#lg)" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M8 84V58L24 42L40 58V84" />
-          <path d="M40 84V46L60 22L80 46V84" />
-          <path d="M80 84V58L96 42L112 58V84" />
+          <path d="M8 84V58L24 42L40 58V84" /><path d="M40 84V46L60 22L80 46V84" /><path d="M80 84V58L96 42L112 58V84" />
         </g>
-        <circle cx="60" cy="9" r="5.5" fill="#e7c38a" />
-        <circle cx="24" cy="28" r="4.5" fill="#d98873" />
-        <circle cx="96" cy="28" r="4.5" fill="#d98873" />
-        <rect x="4" y="88" width="112" height="7" rx="3.5" fill="#2ec4b6" />
+        <circle cx="60" cy="9" r="5.5" fill="#e7c38a" /><circle cx="24" cy="28" r="4.5" fill="#d98873" /><circle cx="96" cy="28" r="4.5" fill="#d98873" />
+        <rect x="4" y="88" width="112" height="7" rx="3.5" fill="#00e5ff" />
       </g>
     </svg>
   );
 }
-const Word = () => <span className="word">TRIBRIDGE <b>CYBER</b></span>;
-
-function Auth() {
-  const [mode, setMode] = useState('in');
-  const [f, setF] = useState({ username: '', full_name: '', phone: '', email: '', password: '', consent: false });
-  const [msg, setMsg] = useState('');
-  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
-  async function go(e) {
-    e.preventDefault();
-    setMsg('');
-    if (mode === 'in') {
-      const { error } = await sb.auth.signInWithPassword({ email: f.email, password: f.password });
-      if (error) setMsg(error.message);
-      return;
-    }
-    const u = f.username.trim().toLowerCase();
-    const { data: free } = await sb.rpc('username_available', { u });
-    if (!free) return setMsg('Username already exists. Choose another one.');
-    const { data, error } = await sb.auth.signUp({
-      email: f.email,
-      password: f.password,
-      options: { data: { username: u, full_name: f.full_name, phone: f.phone, consent: f.consent } },
-    });
-    if (error) setMsg(error.message);
-    else if (!data.session) setMsg('Account created. Confirm your email, then log in.');
-  }
+const Brand = () => (
+  <div className="brand"><div className="tile"><Logo size={34} /></div><div className="wm"><b>TRIBRIDGE</b><span>CYBER</span></div></div>
+);
+const Status = ({ s }) => <span className={'chipst ' + s}>{s.replace('_', ' ')}</span>;
+function Toggle({ label, children }) {
+  const [o, setO] = useState(false);
+  return (<div><button className="link" onClick={() => setO(!o)}>{o ? 'Hide ' : ''}{label}</button>{o && children}</div>);
+}
+function FreePaid() {
   return (
-    <form className="auth" onSubmit={go}>
-      <div className="hero"><Logo size={96} /><Word /></div>
-      <p className="muted c">From KCSE to your first day on campus.</p>
-      {mode === 'up' && (
-        <>
-          <input placeholder="Username" value={f.username} onChange={set('username')} required />
-          <input placeholder="Full name, surname first, as on your ID" value={f.full_name} onChange={set('full_name')} required />
-          <input placeholder="Phone (M-Pesa number)" inputMode="tel" value={f.phone} onChange={set('phone')} required />
-        </>
-      )}
-      <input type="email" placeholder="Email" value={f.email} onChange={set('email')} required />
-      <input type="password" placeholder="Password (6+ characters)" minLength={6} value={f.password} onChange={set('password')} required />
-      {mode === 'up' && (
-        <label className="agree"><input type="checkbox" required checked={f.consent} onChange={(e) => setF({ ...f, consent: e.target.checked })} /> {CONSENT_UP}</label>
-      )}
-      {msg && <p className="err">{msg}</p>}
-      <button className="go">{mode === 'in' ? 'Log in' : 'Create account'}</button>
-      <button type="button" className="link" onClick={() => { setMode(mode === 'in' ? 'up' : 'in'); setMsg(''); }}>
-        {mode === 'in' ? 'New here? Create an account' : 'Have an account? Log in'}
-      </button>
-    </form>
+    <>
+      <div className="card free">
+        <div className="ttl"><Ic n="ok" /><h3>Always free</h3></div>
+        <ul className="list"><li>Career and course advice</li><li>KUCCPS, HEF and college opening alerts</li><li>KCSE results updates</li><li>ID and bank account guidance</li></ul>
+      </div>
+      <div className="card paid">
+        <h3>Paid only when we do it for you</h3>
+        <p>We only charge a small service fee when we fill in and submit an application on your behalf, like a cyber but online: KUCCPS, KRA PIN, HEF, eCitizen, SHA, Good Conduct, college applications, CVs and the course analyzer. Government fees, if any, are separate. You see the price before you apply.</p>
+      </div>
+    </>
+  );
+}
+function Footer({ go }) {
+  return (
+    <footer className="f"><Brand /><p className="lead">Your bridge from KCSE to your career.</p>
+      <p className="note">All services are offered online. We never ask you to meet in person.</p>
+      <button className="link" onClick={() => go('privacy')}>Privacy Policy</button></footer>
   );
 }
 
-function Home({ services, news }) {
-  const paid = services.filter((s) => !s.free);
+function Home({ go, me }) {
   return (
     <>
-      <h1>Welcome</h1>
-      <section className="fees">
-        <h2>Prices</h2>
-        <p><b>Free:</b> advice, updates and the cluster points estimate.</p>
-        <p className="muted">Choose live help (cheaper, we guide you while you do it yourself) or done for you (we do it for you). Official fees, like the KUCCPS fee, go straight to the agency.</p>
-        <ul>
-          {paid.map((s) => (
-            <li key={s.id}>
-              <span>{s.title}</span>
-              <span className="px">
-                {s.price_live ? `Live KES ${s.price_live}` : ''}
-                {s.price_live && s.price_full ? ' | ' : ''}
-                {s.price_full ? `Done for you KES ${s.price_full}` : ''}
-                {!s.price_live && !s.price_full ? 'Price soon' : ''}
-              </span>
-            </li>
+      <section className="hero">
+        <span className="badge">KCSE class of 2026</span>
+        <h1>Done with KCSE? <em>We bridge you</em> to what comes next.</h1>
+        <p className="lead">ID, KRA PIN, KUCCPS, HEF, cluster points and more. Tribridge Cyber guides Form 4 leavers step by step, all online.</p>
+        <div className="stack">
+          {!me && <button className="cta" onClick={() => go('auth')}><Ic n="login" /> Create free account</button>}
+          <button className="ghost" onClick={() => go('guide')}>See the steps after KCSE</button>
+        </div>
+        <div className="card">
+          <p className="road">// your roadmap</p>
+          {GUIDE.slice(0, 6).map((s, i) => (
+            <div className="rm" key={s.t}><i>{String(i + 1).padStart(2, '0')}</i><div><b>{s.t}</b><div className="note">{s.when}</div></div></div>
           ))}
-        </ul>
+          <button className="link" onClick={() => go('guide')}>View all {GUIDE.length} steps →</button>
+        </div>
       </section>
-      <h2>Updates</h2>
-      {news.length === 0 && <p className="muted">No updates yet. New announcements appear here.</p>}
-      {news.map((n) => (
-        <article key={n.id} className="note">
-          <h3>{n.title}</h3>
-          <p>{n.body}</p>
-          <time>{new Date(n.created_at).toLocaleDateString()}</time>
-        </article>
+      <h2>What is free and what is paid</h2>
+      <p className="lead">Before anything else, here is exactly how we work.</p>
+      <FreePaid />
+      <button className="link" onClick={() => go('services')}>See full price list →</button>
+      <div className="card"><Ic n="cap" s={30} /><h3>KUCCPS made simple</h3><p className="muted">We pick and submit smart course choices with you.</p></div>
+      <div className="card"><Ic n="calc" s={30} /><h3>Course analyzer</h3><p className="muted">Know your cluster points and where you qualify.</p></div>
+      <div className="card"><Ic n="shield" s={30} /><h3>Honest pricing</h3><p className="muted">Advice is free. Pay only when we apply for you.</p></div>
+      <Footer go={go} />
+    </>
+  );
+}
+
+function Guide({ go }) {
+  return (
+    <>
+      <p className="eyebrow">Post-KCSE guide</p>
+      <h1>Your steps after KCSE</h1>
+      <p className="lead">Follow these in order. Most need your National ID, so start there.</p>
+      <div className="tl">
+        {GUIDE.map((s, i) => (
+          <div className="step" key={s.t}>
+            <span className="n">{String(i + 1).padStart(2, '0')}</span>
+            <div className="card">
+              <h3 className="ttl"><Ic n={s.ic} /> {s.t}</h3>
+              <div className="right-tag"><span className="tag">{s.when}</span></div>
+              <p className="muted">{s.d}</p>
+              <p className="micro">You need</p>
+              <ul className="list">{s.need.map((x) => <li key={x}><Ic n="ok" s={20} />{x}</li>)}</ul>
+              <p className="micro">How we help</p>
+              <p>{s.help}</p>
+              {s.svc && <button className="ghost" onClick={() => go('services')}>View price</button>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function Services({ services, me, go, onApply }) {
+  const paid = services.filter((s) => !s.free);
+  const free = services.filter((s) => s.free);
+  return (
+    <>
+      <p className="eyebrow">Services and prices</p>
+      <h1>Everything we can help with</h1>
+      <p className="lead">Prices are service fees only. Government fees, if any, are separate.</p>
+      {me && <button className="ghost" onClick={() => go('requests')}>My requests</button>}
+      <FreePaid />
+      <h2>Paid services (we apply for you)</h2>
+      {paid.map((s) => (
+        <div className="card" key={s.id}>
+          <div className="row"><h3>{s.title}</h3><span className="px">{s.price_full || s.price_live ? `KES ${s.price_full || s.price_live}` : 'Soon'}</span></div>
+          <p className="muted">{s.description}</p>
+          {s.note && <p className="note">Note: {s.note}</p>}
+          {s.price_live && s.price_full && <p className="note">Or live help, where we guide you while you do it: KES {s.price_live}</p>}
+          {s.soon ? <span className="tag">Opening soon</span> : <button className="cta sm" onClick={() => onApply(s)}>Apply</button>}
+        </div>
+      ))}
+      <h2>Free help</h2>
+      {free.map((s) => (
+        <div className="card" key={s.id}><div className="row"><h3>{s.title}</h3><span className="tag free">FREE</span></div><p className="muted">{s.description}</p></div>
       ))}
     </>
   );
 }
 
-function Apply({ s, me, onDone }) {
+function Apply({ s, me, onClose, onDone }) {
   const fields = s.fields || [];
   const [mode, setMode] = useState(s.price_live ? 'live' : 'full');
   const [form, setForm] = useState(() => Object.fromEntries(fields.map(([k]) => [k, k === 'phone' ? me.phone : k === 'email' ? me.email || '' : ''])));
   const [ok, setOk] = useState(false);
+  const [aw, setAw] = useState(false);
   const [err, setErr] = useState('');
   async function submit(e) {
     e.preventDefault();
@@ -149,58 +189,28 @@ function Apply({ s, me, onDone }) {
     else { notify({ kind: 'request', request_id: data.id }); onDone(); }
   }
   return (
-    <form className="form" onSubmit={submit}>
-      <p>{s.description}</p>
-      <div className="modes">
-        {s.price_live && (
-          <label className={mode === 'live' ? 'on' : ''}>
-            <input type="radio" checked={mode === 'live'} onChange={() => setMode('live')} />
-            <b>Live help, KES {s.price_live}</b>
-            <small>We guide you on a call or chat while you do it yourself.</small>
+    <div className="sheet">
+      <div className="row"><p className="eyebrow">Apply</p><button className="link" onClick={onClose}><Ic n="x" /></button></div>
+      <h1>{s.title}</h1>
+      <p className="muted">{s.description}</p>
+      <form onSubmit={submit}>
+        <div className="modes">
+          {s.price_live && (<label className={mode === 'live' ? 'on' : ''}><input type="radio" checked={mode === 'live'} onChange={() => setMode('live')} /><b>Live help, KES {s.price_live}</b><small>We guide you on a call or chat while you do it yourself.</small></label>)}
+          {s.price_full && (<label className={mode === 'full' ? 'on' : ''}><input type="radio" checked={mode === 'full'} onChange={() => setMode('full')} /><b>Done for you, KES {s.price_full}</b><small>You send your details and we do it for you.</small></label>)}
+        </div>
+        <p className="muted">Write your names in the same order as on your ID or birth certificate.</p>
+        {fields.map(([k, label, type]) => (
+          <label key={k} className="fld">{label}
+            <input type={type || 'text'} required={!/optional/i.test(label)} value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} />
           </label>
-        )}
-        {s.price_full && (
-          <label className={mode === 'full' ? 'on' : ''}>
-            <input type="radio" checked={mode === 'full'} onChange={() => setMode('full')} />
-            <b>Done for you, KES {s.price_full}</b>
-            <small>You send your details and we do it for you.</small>
-          </label>
-        )}
-      </div>
-      <p className="muted">Write your names in the same order as on your ID or birth certificate.</p>
-      {fields.map(([k, label, type]) => (
-        <label key={k} className="fld">{label}
-          <input type={type || 'text'} required={!/optional/i.test(label)} value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} />
-        </label>
-      ))}
-      <p className="muted">Upload your documents in the Files tab.</p>
-      <label className="agree"><input type="checkbox" required checked={ok} onChange={(e) => setOk(e.target.checked)} /> {CONSENT_REQ}</label>
-      {err && <p className="err">{err}</p>}
-      <button className="go">Apply</button>
-    </form>
-  );
-}
-
-function Services({ services, me }) {
-  const [open, setOpen] = useState(null);
-  const [done, setDone] = useState('');
-  return (
-    <>
-      <h1>Apply</h1>
-      {done && <p className="toast">{done}</p>}
-      <div className="grid">
-        {services.filter((s) => !s.free).map((s) => (
-          <div key={s.id} className={'arch' + (open === s.id ? ' on' : '')}>
-            <button onClick={() => setOpen(open === s.id ? null : s.id)}>
-              <b>{s.title}</b>
-              <small>{from(s)}</small>
-            </button>
-            {open === s.id && <Apply s={s} me={me} onDone={() => { setOpen(null); setDone('Application sent. Follow it under My requests.'); }} />}
-          </div>
         ))}
-      </div>
-      <MyRequests me={me} />
-    </>
+        <p className="muted">Upload your documents under My account.</p>
+        <label className="agree"><input type="checkbox" required checked={aw} onChange={(e) => setAw(e.target.checked)} /> {AWARE}</label>
+        <label className="agree"><input type="checkbox" required checked={ok} onChange={(e) => setOk(e.target.checked)} /> {CONSENT}</label>
+        {err && <p className="err">{err}</p>}
+        <button className="cta full">Apply</button>
+      </form>
+    </div>
   );
 }
 
@@ -224,7 +234,7 @@ function Thread({ id }) {
     <div className="thread">
       {ms.map((m) => <p key={m.id} className={m.sender_id === uid ? 'mine' : ''}>{m.body}</p>)}
       <input placeholder="Write a message" value={t} onChange={(e) => setT(e.target.value)} />
-      <button className="go" onClick={send}>Send</button>
+      <button className="cta sm" onClick={send}>Send</button>
     </div>
   );
 }
@@ -246,15 +256,10 @@ function Files({ uid }) {
     const { data } = await sb.storage.from('docs').createSignedUrl(`${dir}/${n}`, 300);
     if (data) window.open(data.signedUrl, '_blank');
   }
-  const label = (n) => {
-    const [c, rest] = n.split('__');
-    return (CATS.find((x) => x[0] === c)?.[1] || 'Other') + ': ' + (rest || n).replace(/^\d+-/, '');
-  };
+  const label = (n) => { const [c, rest] = n.split('__'); return (CATS.find((x) => x[0] === c)?.[1] || 'Other') + ': ' + (rest || n).replace(/^\d+-/, ''); };
   return (
     <div>
-      <select value={cat} onChange={(e) => setCat(e.target.value)}>
-        {CATS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-      </select>
+      <select value={cat} onChange={(e) => setCat(e.target.value)}>{CATS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
       <input type="file" accept="image/*,application/pdf" onChange={up} />
       {files.length === 0 && <p className="muted">No files yet.</p>}
       {files.map((f) => <button key={f.name} className="link" onClick={() => open(f.name)}>{label(f.name)}</button>)}
@@ -262,12 +267,12 @@ function Files({ uid }) {
   );
 }
 
-function MyRequests({ me }) {
+function Requests({ me }) {
   const [rs, setRs] = useState([]);
   const [ps, setPs] = useState([]);
   const [msg, setMsg] = useState('');
   const load = async () => {
-    const r = await sb.from('requests').select('*, services(title, price_live, price_full)').eq('user_id', me.id).order('created_at', { ascending: false });
+    const r = await sb.from('requests').select('*, services(title, price_live, price_full)').eq('user_id', me.id).order('created_at');
     setRs(r.data || []);
     const p = await sb.from('payments').select('*').eq('user_id', me.id);
     setPs(p.data || []);
@@ -283,83 +288,173 @@ function MyRequests({ me }) {
   }
   return (
     <>
-      <h2>My requests</h2>
+      <p className="eyebrow">My requests</p>
+      <h1>Track your applications</h1>
+      <p className="lead">See payment and progress for every service you requested.</p>
       {msg && <p className="toast">{msg}</p>}
-      {rs.length === 0 && <p className="muted">Nothing yet. Pick a service above and tap Apply.</p>}
+      {rs.length === 0 && <p className="muted">Nothing yet. Open Services and tap Apply.</p>}
       {rs.map((r) => {
         const paid = ps.some((p) => p.request_id === r.id && p.status === 'paid');
         const price = priceOf(r);
         return (
-          <article key={r.id} className={'note ' + r.status}>
-            <h3>{r.services?.title}</h3>
-            <p className="muted">{r.mode === 'live' ? 'Live help' : 'Done for you'}, status: {r.status.replace('_', ' ')}{paid ? ', paid' : ''}</p>
-            {!paid && price && (
-              <>
-                <p className="muted">Pay first, then we start.</p>
-                <button className="go" onClick={() => pay(r.id)}>Pay KES {price}</button>
-              </>
-            )}
-            <Thread id={r.id} />
-          </article>
+          <div className="card" key={r.id}>
+            <div className="row"><h3>{r.services?.title}</h3><Status s={r.status} /></div>
+            <p className="note">{r.mode === 'live' ? 'Live help' : 'Done for you'}, applied {ds(r.created_at)}{paid ? ', paid' : ''}</p>
+            {!paid && price && (<><p className="note">Pay first, then we start.</p><button className="cta sm" onClick={() => pay(r.id)}>Pay KES {price}</button></>)}
+            <Toggle label="Messages"><Thread id={r.id} /></Toggle>
+          </div>
         );
       })}
     </>
   );
 }
 
-function Calc() {
-  const [rows, setRows] = useState(['English', 'Kiswahili', 'Mathematics', 'Biology', 'Chemistry', 'Physics', 'Geography'].map((name, i) => ({ name, g: 'B', c: i < 4 })));
-  const upd = (i, p) => setRows(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
-  const t = rows.map((r) => PTS[r.g]).sort((a, b) => b - a).slice(0, 7).reduce((a, b) => a + b, 0);
-  const cl = rows.filter((r) => r.c);
-  const r4 = cl.reduce((a, r) => a + PTS[r.g], 0);
-  const C = cl.length === 4 && rows.length >= 7 ? Math.sqrt((r4 / 48) * (t / 84)) * 48 : null;
+const Soon = ({ go }) => (
+  <>
+    <p className="eyebrow">Course analyzer</p><h1>Cluster points and your courses</h1>
+    <div className="card paid"><div className="row"><h3>Opening soon</h3><span className="px">KES 100</span></div>
+      <p>Enter your grades and see your cluster points and the courses and universities you qualify for.</p></div>
+    <button className="ghost" onClick={() => go('home')}>Back home</button>
+  </>
+);
+
+function Account({ me, reload, go }) {
+  const [f, setF] = useState({ full_name: me.full_name || '', username: me.username || '', phone: me.phone || '', dob: me.dob || '', county: me.county || '', kcse_index: me.kcse_index || '', parent_phone: me.parent_phone || '' });
+  const [msg, setMsg] = useState('');
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  async function save(e) {
+    e.preventDefault();
+    const { error } = await sb.from('profiles').update({ ...f, username: f.username.trim().toLowerCase(), dob: f.dob || null }).eq('id', me.id);
+    setMsg(error ? (error.code === '23505' ? 'Username already exists. Choose another one.' : error.message) : 'Saved.');
+    if (!error) reload();
+  }
+  async function del() {
+    if (!window.confirm('Ask us to delete your data? We will contact you.')) return;
+    await sb.from('feedback').insert({ user_id: me.id, message: 'DATA DELETION REQUEST' });
+    setMsg('Request sent. We will contact you.');
+  }
   return (
     <>
-      <h1>Cluster points</h1>
-      <p className="muted">Add every subject you sat and its grade. Tick the four subjects your course needs. We use your best seven for the total.</p>
-      {rows.map((r, i) => (
-        <div className="row" key={i}>
-          <select value={r.name} onChange={(e) => upd(i, { name: e.target.value })}>
-            {Object.entries(SUBJECTS).map(([grp, list]) => (
-              <optgroup key={grp} label={grp}>{list.map((n) => <option key={n}>{n}</option>)}</optgroup>
-            ))}
-          </select>
-          <select value={r.g} onChange={(e) => upd(i, { g: e.target.value })}>
-            {Object.keys(PTS).map((g) => <option key={g}>{g}</option>)}
-          </select>
-          <label><input type="checkbox" checked={r.c} onChange={(e) => upd(i, { c: e.target.checked })} /> Cluster</label>
-          <button className="x" onClick={() => setRows(rows.filter((_, j) => j !== i))}>Remove</button>
-        </div>
-      ))}
-      <button className="link" onClick={() => setRows([...rows, { name: 'English', g: 'B', c: false }])}>Add a subject</button>
-      <div className="result">
-        {C ? <><b>{C.toFixed(3)}</b><span>out of 48, estimate</span></> : <span>Add at least 7 subjects and tick exactly four for the cluster.</span>}
-      </div>
-      <p className="muted">KUCCPS works out the official weighted points from KNEC data. Check yours in the KUCCPS portal.</p>
+      <p className="eyebrow">My account</p><h1>Your details</h1>
+      <form onSubmit={save}>
+        <label className="fld">Full name, surname first, as on your ID<input value={f.full_name} onChange={set('full_name')} required /></label>
+        <label className="fld">Username<input value={f.username} onChange={set('username')} required /></label>
+        <label className="fld">Phone (M-Pesa number)<input inputMode="tel" value={f.phone} onChange={set('phone')} required /></label>
+        <label className="fld">Email (cannot be changed here)<input value={me.email || ''} readOnly /></label>
+        <label className="fld">Date of birth<input type="date" value={f.dob} onChange={set('dob')} /></label>
+        <label className="fld">County<input value={f.county} onChange={set('county')} /></label>
+        <label className="fld">KCSE index number<input value={f.kcse_index} onChange={set('kcse_index')} /></label>
+        <label className="fld">Parent or guardian phone<input inputMode="tel" value={f.parent_phone} onChange={set('parent_phone')} /></label>
+        {msg && <p className="toast">{msg}</p>}
+        <button className="cta full">Save changes</button>
+      </form>
+      <h2>My documents</h2>
+      <p className="muted">Upload clear photos or PDFs. Only you and Tribridge Cyber can see them.</p>
+      <Files uid={me.id} />
+      <h2>Your data</h2>
+      <button className="link" onClick={() => go('privacy')}>Read the Privacy Policy</button><br />
+      <button className="link" onClick={del}>Ask us to delete my data</button>
     </>
   );
 }
 
-function More({ me }) {
-  const [m, setM] = useState('');
-  const [ok, setOk] = useState('');
-  async function send() {
-    if (!m.trim()) return;
-    const { error } = await sb.from('feedback').insert({ user_id: me.id, message: m.trim() });
-    setOk(error ? error.message : 'Thank you. We read every message.');
-    if (!error) setM('');
+function Privacy() {
+  return (
+    <div className="pol">
+      <p className="eyebrow">Privacy policy</p><h1>How we handle your data</h1>
+      <p>Last updated: November 2026. Tribridge Cyber ("we") helps KCSE leavers with applications online. To reach us, send a message in the app under Feedback.</p>
+      <h3>What we collect</h3>
+      <p>Your account details (names, username, phone, email), the details you type into forms (for example ID number, birth certificate number, KCSE index number and parent details), documents you upload, your messages with us, and payment confirmations such as M-Pesa receipt numbers. We never ask for your passwords or M-Pesa PIN.</p>
+      <h3>Why we use it</h3>
+      <p>Only to do the service you ask for, to contact you, to take payment and to send you notifications.</p>
+      <h3>Your consent</h3>
+      <p>We rely on your consent, which you give by ticking the boxes. You can withdraw it at any time.</p>
+      <h3>Who we share it with</h3>
+      <p>Government portals and institutions, only as needed for your application. Our service providers, who host data (Supabase), process payments (Safaricom M-Pesa) and send notifications (Google Firebase). We use an AI tool only to polish our announcements; it never receives your personal details. We do not sell your data.</p>
+      <h3>How long we keep it</h3>
+      <p>Until your request is finished and for up to 90 days after, then we delete your documents and form details unless the law requires us to keep them.</p>
+      <h3>Security</h3>
+      <p>Your files are private and only you and our team can open them. Data travels encrypted.</p>
+      <h3>If you are under 18</h3>
+      <p>Your parent or guardian must agree to you using this service.</p>
+      <h3>Your rights</h3>
+      <p>Under Kenya's Data Protection Act you can see, correct or delete your data, object to its use, withdraw consent and complain to the Office of the Data Protection Commissioner. Edit your details or ask for deletion under My account.</p>
+      <h3>Changes</h3>
+      <p>We will announce any change in the app.</p>
+    </div>
+  );
+}
+
+function Auth({ go }) {
+  const [mode, setMode] = useState('in');
+  const [f, setF] = useState({ username: '', full_name: '', phone: '', email: '', password: '', consent: false, aware: false });
+  const [msg, setMsg] = useState('');
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  async function submit(e) {
+    e.preventDefault();
+    setMsg('');
+    if (mode === 'in') {
+      const { error } = await sb.auth.signInWithPassword({ email: f.email, password: f.password });
+      if (error) setMsg(error.message);
+      return;
+    }
+    const u = f.username.trim().toLowerCase();
+    const { data: free } = await sb.rpc('username_available', { u });
+    if (!free) return setMsg('Username already exists. Choose another one.');
+    const { data, error } = await sb.auth.signUp({ email: f.email, password: f.password, options: { data: { username: u, full_name: f.full_name, phone: f.phone, consent: f.consent, aware: f.aware } } });
+    if (error) setMsg(error.message);
+    else if (!data.session) setMsg('Account created. Confirm your email, then log in.');
   }
   return (
+    <form onSubmit={submit}>
+      <p className="eyebrow">{mode === 'in' ? 'Sign in' : 'Join'}</p>
+      <h1>{mode === 'in' ? 'Welcome back' : 'Create your free account'}</h1>
+      {mode === 'up' && (
+        <>
+          <input placeholder="Username" value={f.username} onChange={set('username')} required />
+          <input placeholder="Full name, surname first, as on your ID" value={f.full_name} onChange={set('full_name')} required />
+          <input placeholder="Phone (M-Pesa number)" inputMode="tel" value={f.phone} onChange={set('phone')} required />
+        </>
+      )}
+      <input type="email" placeholder="Email" value={f.email} onChange={set('email')} required />
+      <input type="password" placeholder="Password (6+ characters)" minLength={6} value={f.password} onChange={set('password')} required />
+      {mode === 'up' && (
+        <>
+          <label className="agree"><input type="checkbox" required checked={f.aware} onChange={(e) => setF({ ...f, aware: e.target.checked })} /> {AWARE}</label>
+          <button type="button" className="link" onClick={() => go('privacy')}>Read the Privacy Policy</button>
+          <label className="agree"><input type="checkbox" required checked={f.consent} onChange={(e) => setF({ ...f, consent: e.target.checked })} /> {CONSENT}</label>
+        </>
+      )}
+      {msg && <p className="err">{msg}</p>}
+      <button className="cta full">{mode === 'in' ? 'Log in' : 'Create account'}</button>
+      <button type="button" className="link" onClick={() => { setMode(mode === 'in' ? 'up' : 'in'); setMsg(''); }}>{mode === 'in' ? 'New here? Create an account' : 'Have an account? Log in'}</button>
+    </form>
+  );
+}
+
+function Drawer({ me, page, admin, go, onClose }) {
+  const [rs, setRs] = useState([]);
+  useEffect(() => {
+    if (me) sb.from('requests').select('id, status, created_at, services(title)').eq('user_id', me.id).order('created_at').then(({ data }) => setRs(data || []));
+  }, []);
+  const items = [['home', 'Home', 'home'], ['guide', 'Guide', 'book'], ['services', 'Services', 'grid'], ...(me ? [['requests', 'My requests', 'list']] : []), ['analyzer', 'Course analyzer', 'calc', 1], ...(me ? [['news', 'Announcements', 'bell'], ['feedback', 'Feedback', 'chat'], ['account', 'My account', 'user']] : []), ['privacy', 'Privacy policy', 'shield'], ...(admin ? [['admin', 'Admin', 'id']] : [])];
+  return (
     <>
-      <h1>More</h1>
-      <p>{me.full_name}</p>
-      <p className="muted">@{me.username}</p>
-      <h2>Feedback</h2>
-      <textarea placeholder="Tell us what to fix or add" value={m} onChange={(e) => setM(e.target.value)} />
-      <button className="go" onClick={send}>Send feedback</button>
-      {ok && <p className="toast">{ok}</p>}
-      <button className="link" onClick={() => sb.auth.signOut()}>Log out</button>
+      <div className="scrim" onClick={onClose} />
+      <aside className="drawer">
+        <div className="hd"><span>MENU</span><button onClick={onClose} aria-label="Close menu"><Ic n="x" /></button></div>
+        {items.map(([k, l, ic, soon]) => (
+          <button key={k} className={'nav' + (page === k ? ' on' : '')} onClick={() => go(k)}><Ic n={ic} />{l}{soon && <span className="soon">SOON</span>}</button>
+        ))}
+        {me && (
+          <>
+            <p className="micro">My applications</p>
+            {rs.length === 0 && <p className="note">Nothing yet.</p>}
+            {rs.map((r) => (<button key={r.id} className="nav" onClick={() => go('requests')}><span>{r.services?.title}<br /><span className="note">{ds(r.created_at)}</span></span><span className="soon"><Status s={r.status} /></span></button>))}
+          </>
+        )}
+        {me ? <button className="out" onClick={() => { sb.auth.signOut(); onClose(); }}><Ic n="out" /> Sign out</button> : <button className="cta full" onClick={() => go('auth')}>Sign in / Join</button>}
+      </aside>
     </>
   );
 }
@@ -375,35 +470,36 @@ function Prices({ services, reload }) {
   }
   return (
     <>
-      <h2>Prices in KES</h2>
       {services.filter((s) => !s.free).map((s) => (
-        <div className="note" key={s.id}>
-          <h3>{s.title}</h3>
-          <div className="row2">
-            <input inputMode="numeric" placeholder="Live help" value={val(s, 'price_live')} onChange={(e) => set(s, 'price_live', e.target.value)} />
-            <input inputMode="numeric" placeholder="Done for you" value={val(s, 'price_full')} onChange={(e) => set(s, 'price_full', e.target.value)} />
-          </div>
-          <button className="go" onClick={() => save(s)}>Save</button>
-        </div>
+        <div className="card" key={s.id}><h3>{s.title}</h3>
+          <div className="two"><input inputMode="numeric" placeholder="Live help" value={val(s, 'price_live')} onChange={(e) => set(s, 'price_live', e.target.value)} /><input inputMode="numeric" placeholder="Done for you" value={val(s, 'price_full')} onChange={(e) => set(s, 'price_full', e.target.value)} /></div>
+          <button className="cta sm" onClick={() => save(s)}>Save</button></div>
       ))}
     </>
   );
 }
 
 function Admin({ services, reload }) {
+  const [tab, setTab] = useState('requests');
   const [reqs, setReqs] = useState([]);
   const [fb, setFb] = useState([]);
   const [pays, setPays] = useState([]);
+  const [news, setNews] = useState([]);
+  const [flt, setFlt] = useState('all');
+  const [open, setOpen] = useState(null);
+  const [edit, setEdit] = useState(null);
   const [t, setT] = useState('');
   const [b, setB] = useState('');
   const [msg, setMsg] = useState('');
   const load = async () => {
-    const r = await sb.from('requests').select('*, profiles(full_name, phone, username), services(title, fields, price_live, price_full)').order('created_at', { ascending: false });
+    const r = await sb.from('requests').select('*, profiles(full_name, phone, username), services(title, fields, price_live, price_full)').order('created_at', { ascending: true });
     setReqs(r.data || []);
     const f = await sb.from('feedback').select('*, profiles(username)').order('created_at', { ascending: false }).limit(30);
     setFb(f.data || []);
     const p = await sb.from('payments').select('*');
     setPays(p.data || []);
+    const n = await sb.from('announcements').select('*').order('created_at', { ascending: false });
+    setNews(n.data || []);
   };
   useEffect(() => {
     load();
@@ -422,41 +518,105 @@ function Admin({ services, reload }) {
     if (!t.trim() || !b.trim()) return;
     const { error } = await sb.from('announcements').insert({ title: t.trim(), body: b.trim() });
     setMsg(error ? error.message : 'Published.');
-    if (!error) { notify({ kind: 'announcement', title: t.trim(), body: b.trim() }); setT(''); setB(''); }
+    if (!error) { notify({ kind: 'announcement', title: t.trim(), body: b.trim() }); setT(''); setB(''); load(); }
+  }
+  async function saveEdit() {
+    await sb.from('announcements').update({ title: edit.title, body: edit.body }).eq('id', edit.id);
+    setEdit(null); load();
+  }
+  async function del(id) {
+    if (window.confirm('Delete this announcement?')) { await sb.from('announcements').delete().eq('id', id); load(); }
+  }
+  const shown = reqs.filter((r) => flt === 'all' || r.status === flt);
+  return (
+    <>
+      <p className="eyebrow">Admin</p><h1>Control room</h1>
+      <div className="seg">{[['requests', 'Requests'], ['news', 'Announcements'], ['prices', 'Prices'], ['fb', 'Feedback']].map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
+      {tab === 'requests' && (
+        <>
+          <p className="note">Oldest application first. {reqs.filter((r) => r.status === 'new').length} new.</p>
+          <div className="seg">{['all', 'new', 'in_progress', 'done', 'cancelled'].map((s) => <button key={s} className={flt === s ? 'on' : ''} onClick={() => setFlt(s)}>{s.replace('_', ' ')}</button>)}</div>
+          <div className="tbl">
+            <div className="tr h"><span>#</span><span>Date</span><span>Name and service</span><span>Status</span></div>
+            {shown.map((r, i) => (
+              <div key={r.id}>
+                <button className="tr" onClick={() => setOpen(open === r.id ? null : r.id)}>
+                  <span>{i + 1}</span><span>{ds(r.created_at)}</span><span><b>{r.profiles?.full_name}</b><br /><span className="note">{r.services?.title}</span></span><Status s={r.status} />
+                </button>
+                {open === r.id && (
+                  <div className="detail">
+                    <p className="note">{r.mode === 'live' ? 'Live help' : 'Done for you'}{priceOf(r) ? `, KES ${priceOf(r)}` : ''} | @{r.profiles?.username}</p>
+                    {pays.filter((p) => p.request_id === r.id && p.status === 'paid').map((p) => <p key={p.id} className="toast">Paid, receipt {p.receipt}</p>)}
+                    {(r.services?.fields || []).map(([k, label]) => (r.form?.[k] ? <p key={k}><span className="muted">{label}: </span>{r.form[k]}</p> : null))}
+                    {r.consent_at && <p className="note">Consent given {new Date(r.consent_at).toLocaleDateString()}</p>}
+                    <a href={wa(r.profiles?.phone)}>Message on WhatsApp</a>
+                    <Toggle label="Student files"><Files uid={r.user_id} /></Toggle>
+                    <Toggle label="Messages"><Thread id={r.id} /></Toggle>
+                    <div className="seg">{['new', 'in_progress', 'done', 'cancelled'].map((s) => <button key={s} className={r.status === s ? 'on' : ''} onClick={() => setStatus(r.id, s)}>{s.replace('_', ' ')}</button>)}</div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {tab === 'news' && (
+        <>
+          <input placeholder="Title" value={t} onChange={(e) => setT(e.target.value)} />
+          <textarea placeholder="Write the update" value={b} onChange={(e) => setB(e.target.value)} />
+          <button className="link" onClick={polish}>Polish with AI</button>
+          <button className="cta full" onClick={publish}>Publish</button>
+          {msg && <p className="toast">{msg}</p>}
+          <h2>Published</h2>
+          {news.map((n) => (
+            <div className="card" key={n.id}>
+              {edit?.id === n.id ? (
+                <>
+                  <input value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} />
+                  <textarea value={edit.body} onChange={(e) => setEdit({ ...edit, body: e.target.value })} />
+                  <button className="cta sm" onClick={saveEdit}>Save</button> <button className="link" onClick={() => setEdit(null)}>Cancel</button>
+                </>
+              ) : (
+                <>
+                  <h3>{n.title}</h3><p className="muted">{n.body}</p><p className="note">{ds(n.created_at)}</p>
+                  <button className="link" onClick={() => setEdit(n)}>Edit</button> <button className="link" onClick={() => del(n.id)}>Delete</button>
+                </>
+              )}
+            </div>
+          ))}
+        </>
+      )}
+      {tab === 'prices' && <Prices services={services} reload={reload} />}
+      {tab === 'fb' && fb.map((x) => <div className="card" key={x.id}><p>{x.message}</p><p className="note">@{x.profiles?.username}</p></div>)}
+    </>
+  );
+}
+
+function News({ news }) {
+  return (
+    <>
+      <p className="eyebrow">Announcements</p><h1>Latest updates</h1>
+      {news.length === 0 && <p className="muted">No updates yet. New announcements appear here.</p>}
+      {news.map((n) => (<div className="card" key={n.id}><h3>{n.title}</h3><p className="muted">{n.body}</p><p className="note">{new Date(n.created_at).toLocaleDateString()}</p></div>))}
+    </>
+  );
+}
+
+function Feedback({ me }) {
+  const [m, setM] = useState('');
+  const [ok, setOk] = useState('');
+  async function send() {
+    if (!m.trim()) return;
+    const { error } = await sb.from('feedback').insert({ user_id: me.id, message: m.trim() });
+    setOk(error ? error.message : 'Thank you. We read every message.');
+    if (!error) setM('');
   }
   return (
     <>
-      <h1>Admin</h1>
-      <h2>New announcement</h2>
-      <input placeholder="Title" value={t} onChange={(e) => setT(e.target.value)} />
-      <textarea placeholder="Write the update" value={b} onChange={(e) => setB(e.target.value)} />
-      <button className="link" onClick={polish}>Polish with AI</button>
-      <button className="go" onClick={publish}>Publish</button>
-      {msg && <p className="toast">{msg}</p>}
-      <h2>Requests ({reqs.filter((r) => r.status === 'new').length} new)</h2>
-      {reqs.map((r) => (
-        <article key={r.id} className={'note ' + r.status}>
-          <h3>{r.services?.title}</h3>
-          <p className="muted">{r.mode === 'live' ? 'Live help' : 'Done for you'}{priceOf(r) ? `, KES ${priceOf(r)}` : ''}</p>
-          {pays.filter((p) => p.request_id === r.id && p.status === 'paid').map((p) => <p key={p.id} className="toast">Paid, receipt {p.receipt}</p>)}
-          <p>{r.profiles?.full_name} (@{r.profiles?.username})</p>
-          {(r.services?.fields || []).map(([k, label]) => (r.form?.[k] ? <p key={k}><span className="muted">{label}: </span>{r.form[k]}</p> : null))}
-          {r.consent_at && <p className="muted">Consent given {new Date(r.consent_at).toLocaleDateString()}</p>}
-          <a href={wa(r.profiles?.phone)}>Message on WhatsApp</a>
-          <details><summary>Student files</summary><Files uid={r.user_id} /></details>
-          <Thread id={r.id} />
-          <div className="chips">
-            {['new', 'in_progress', 'done', 'cancelled'].map((s) => (
-              <button key={s} className={r.status === s ? 'on' : ''} onClick={() => setStatus(r.id, s)}>{s.replace('_', ' ')}</button>
-            ))}
-          </div>
-        </article>
-      ))}
-      <Prices services={services} reload={reload} />
-      <h2>Feedback</h2>
-      {fb.map((x) => (
-        <article key={x.id} className="note"><p>{x.message}</p><p className="muted">@{x.profiles?.username}</p></article>
-      ))}
+      <p className="eyebrow">Feedback</p><h1>Tell us what to fix or add</h1>
+      <textarea placeholder="Write your message" value={m} onChange={(e) => setM(e.target.value)} />
+      <button className="cta full" onClick={send}>Send feedback</button>
+      {ok && <p className="toast">{ok}</p>}
     </>
   );
 }
@@ -466,21 +626,26 @@ export default function App() {
   const [me, setMe] = useState(null);
   const [services, setServices] = useState([]);
   const [news, setNews] = useState([]);
-  const [tab, setTab] = useState('home');
+  const [page, setPage] = useState('home');
+  const [menu, setMenu] = useState(false);
+  const [applying, setApplying] = useState(null);
   const uid = session?.user?.id;
+  const go = (p) => { setPage(p); setMenu(false); setApplying(null); window.scrollTo(0, 0); };
+  const loadMe = () => sb.from('profiles').select('*').eq('id', uid).single().then(({ data }) => setMe(data));
   const loadServices = () => sb.from('services').select('*').order('sort').then(({ data }) => setServices(data || []));
 
   useEffect(() => {
     sb.auth.getSession().then(({ data }) => setSession(data.session));
     const { data } = sb.auth.onAuthStateChange((_e, s) => setSession(s));
+    loadServices();
     return () => data.subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
     if (!uid) { setMe(null); return; }
+    setPage((p) => (p === 'auth' ? 'home' : p));
     const loadNews = () => sb.from('announcements').select('*').order('created_at', { ascending: false }).limit(30).then(({ data }) => setNews(data || []));
-    sb.from('profiles').select('*').eq('id', uid).single().then(({ data }) => setMe(data));
-    loadServices();
+    loadMe();
     loadNews();
     const ch = sb.channel('news').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'announcements' }, loadNews).subscribe();
     return () => { sb.removeChannel(ch); };
@@ -495,32 +660,39 @@ export default function App() {
   }, [uid]);
 
   if (session === undefined) return <div className="boot">Tribridge Cyber</div>;
-  if (!session) return <Auth />;
-  if (!me) return <div className="boot">Loading</div>;
-  const admin = me.role === 'admin' && isApp;
-  const tabs = [['home', 'Home'], ['apply', 'Apply'], ['files', 'Files'], ['calc', 'Points'], ['more', 'More'], ...(admin ? [['admin', 'Admin']] : [])];
+  if (uid && !me) return <div className="boot">Loading</div>;
+  const admin = me?.role === 'admin' && isApp;
+  const gated = ['requests', 'account', 'news', 'feedback'].includes(page) || (page === 'admin' && !admin);
+  const view = !me && gated ? 'auth' : page;
+  const onApply = (s) => (me ? setApplying(s) : go('auth'));
+  const tabs = [['home', 'Home', 'home'], ['guide', 'Guide', 'book'], ['services', 'Services', 'grid'], [me ? 'requests' : 'auth', 'Requests', 'list'], [me ? 'account' : 'auth', 'Account', 'user']];
   return (
-    <div className="app">
-      <header className="top"><Logo size={36} /><Word /></header>
+    <>
+      <header className="top">
+        <button onClick={() => go('home')} aria-label="Home"><Brand /></button>
+        <div className="right">
+          {!me && <button className="cta sm" onClick={() => go('auth')}><Ic n="login" s={18} /> Sign in / Join</button>}
+          <button onClick={() => setMenu(true)} aria-label="Open menu"><Ic n="menu" s={26} /></button>
+        </div>
+      </header>
       <main>
-        {tab === 'home' && <Home services={services} news={news} />}
-        {tab === 'apply' && <Services services={services} me={me} />}
-        {tab === 'files' && (
-          <>
-            <h1>Files</h1>
-            <p className="muted">Upload clear photos or PDFs. Only you and Tribridge Cyber can see them.</p>
-            <Files uid={me.id} />
-          </>
-        )}
-        {tab === 'calc' && <Calc />}
-        {tab === 'more' && <More me={me} />}
-        {tab === 'admin' && admin && <Admin services={services} reload={loadServices} />}
+        {view === 'home' && <Home go={go} me={me} />}
+        {view === 'guide' && <Guide go={go} />}
+        {view === 'services' && <Services services={services} me={me} go={go} onApply={onApply} />}
+        {view === 'requests' && me && <Requests me={me} />}
+        {view === 'analyzer' && <Soon go={go} />}
+        {view === 'news' && <News news={news} />}
+        {view === 'feedback' && me && <Feedback me={me} />}
+        {view === 'account' && me && <Account me={me} reload={loadMe} go={go} />}
+        {view === 'privacy' && <Privacy />}
+        {view === 'auth' && <Auth go={go} />}
+        {view === 'admin' && admin && <Admin services={services} reload={loadServices} />}
       </main>
-      <nav className="island">
-        {tabs.map(([k, label]) => (
-          <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{label}</button>
-        ))}
+      <nav className="tabs">
+        {tabs.map(([k, l, ic]) => (<button key={l} className={page === k ? 'on' : ''} onClick={() => go(k)}><Ic n={ic} />{l}</button>))}
       </nav>
-    </div>
+      {menu && <Drawer me={me} page={page} admin={admin} go={go} onClose={() => setMenu(false)} />}
+      {applying && me && <Apply s={applying} me={me} onClose={() => setApplying(null)} onDone={() => go('requests')} />}
+    </>
   );
 }
