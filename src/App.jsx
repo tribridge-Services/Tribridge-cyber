@@ -662,6 +662,77 @@ function Prices({ services, reload }) {
   );
 }
 
+function parseCSV(text) {
+  const rows = [];
+  let row = [];
+  let f = '';
+  let q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"' && text[i + 1] === '"') { f += '"'; i++; } else if (c === '"') q = false; else f += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(f); f = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(f); f = '';
+      if (row.some((x) => x.trim() !== '')) rows.push(row);
+      row = [];
+    } else f += c;
+  }
+  row.push(f);
+  if (row.some((x) => x.trim() !== '')) rows.push(row);
+  return rows;
+}
+
+function Courses() {
+  const [n, setN] = useState(null);
+  const [msg, setMsg] = useState('');
+  const count = () => sb.from('programmes').select('id', { count: 'exact', head: true }).then(({ count: c }) => setN(c));
+  useEffect(() => { count(); }, []);
+  async function pick(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const rows = parseCSV(await file.text());
+    const h = (rows[0] || []).map((x) => x.trim().toLowerCase());
+    const ix = (k) => h.indexOf(k);
+    if (['programme', 'institution', 'req', 'cutoff'].some((k) => ix(k) < 0)) return setMsg('The first row must be: programme,institution,req,cutoff,year');
+    const data = rows.slice(1).map((r) => ({
+      programme: r[ix('programme')]?.trim(),
+      institution: r[ix('institution')]?.trim(),
+      req: r[ix('req')]?.trim(),
+      cutoff: parseFloat(r[ix('cutoff')]),
+      year: ix('year') >= 0 ? parseInt(r[ix('year')], 10) || null : null,
+    })).filter((d) => d.programme && d.institution && d.req && !Number.isNaN(d.cutoff));
+    for (let i = 0; i < data.length; i += 500) {
+      const { error } = await sb.from('programmes').insert(data.slice(i, i + 500));
+      if (error) return setMsg(error.message);
+      setMsg(`Importing ${Math.min(i + 500, data.length)} of ${data.length}...`);
+    }
+    setMsg(`Done. ${data.length} courses imported, ${rows.length - 1 - data.length} rows skipped.`);
+    e.target.value = '';
+    count();
+  }
+  async function wipe() {
+    if (!window.confirm('Delete ALL courses? Do this before importing a new year.')) return;
+    const { error } = await sb.from('programmes').delete().gt('id', 0);
+    setMsg(error ? error.message : 'All courses deleted.');
+    count();
+  }
+  return (
+    <>
+      <div className="card paid">
+        <h3>Course list</h3>
+        <p className="note">{n === null ? 'Counting...' : `${n} courses loaded.`} The analyzer uses these rows.</p>
+        <p className="note">Choose a CSV file from your phone. First row: programme,institution,req,cutoff,year. In req, separate the four subject slots with ; and choices inside a slot with /. Use * for any subject.</p>
+        <input type="file" accept=".csv,text/csv" onChange={pick} />
+        {msg && <p className="toast">{msg}</p>}
+        <button className="link" onClick={wipe}>Delete all courses</button>
+      </div>
+    </>
+  );
+}
+
 function Admin({ services, reload }) {
   const [tab, setTab] = useState('requests');
   const [reqs, setReqs] = useState([]);
@@ -716,7 +787,7 @@ function Admin({ services, reload }) {
   return (
     <>
       <p className="eyebrow">Admin</p><h1>Control room</h1>
-      <div className="seg">{[['requests', 'Requests'], ['calc', 'Analyzer'], ['news', 'Announcements'], ['prices', 'Prices'], ['fb', 'Feedback']].map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
+      <div className="seg">{[['requests', 'Requests'], ['calc', 'Analyzer'], ['courses', 'Courses'], ['news', 'Announcements'], ['prices', 'Prices'], ['fb', 'Feedback']].map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
       {tab === 'requests' && (
         <>
           <p className="note">Oldest application first. {reqs.filter((r) => r.status === 'new').length} new.</p>
@@ -787,6 +858,7 @@ function Admin({ services, reload }) {
           {pays.filter((p) => p.purpose === 'calculator' && p.status === 'paid').map((p) => <p key={p.id} className="note">{ds(p.created_at)}, {p.profiles?.full_name}, {p.receipt}</p>)}
         </>
       )}
+      {tab === 'courses' && <Courses />}
       {tab === 'prices' && (<><PayInfo /><Prices services={services} reload={reload} /></>)}
       {tab === 'fb' && fb.map((x) => <div className="card" key={x.id}><p>{x.message}</p><p className="note">@{x.profiles?.username}</p></div>)}
     </>
