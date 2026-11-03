@@ -16,19 +16,22 @@ const ds = (d) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', mont
 const PTS = { A: 12, 'A-': 11, 'B+': 10, B: 9, 'B-': 8, 'C+': 7, C: 6, 'C-': 5, 'D+': 4, D: 3, 'D-': 2, E: 1 };
 const SUBJECTS = {
   Compulsory: ['English', 'Kiswahili', 'Mathematics'],
-  Sciences: ['Biology', 'Chemistry', 'Physics'],
-  Humanities: ['History and Government', 'Geography', 'CRE', 'IRE', 'HRE'],
+  Sciences: ['Biology', 'Chemistry', 'Physics', 'General Science', 'Biological Sciences', 'Physical Sciences'],
+  Humanities: ['History and Government', 'Geography', 'CRE', 'IRE', 'HRE', 'Social Education and Ethics'],
   'Technical and applied': ['Home Science', 'Art and Design', 'Agriculture', 'Computer Studies', 'Aviation', 'Woodwork', 'Metalwork', 'Building Construction', 'Power Mechanics', 'Electricity', 'Drawing and Design'],
-  'Languages and others': ['French', 'German', 'Arabic', 'Kenya Sign Language', 'Music', 'Business Studies'],
+  'Languages and others': ['French', 'German', 'Arabic', 'Kenya Sign Language', 'Music', 'Business Studies', 'Accounting', 'Commerce'],
 };
 const norm = (s) => String(s).trim().toLowerCase();
 function score(p, pts, t) {
-  const slots = String(p.req).split(';').map((s) => s.split('/').map(norm)).sort((x, y) => (x.includes('*') ? 99 : x.length) - (y.includes('*') ? 99 : y.length));
+  const slots = String(p.req).split(';').map((s) => {
+    const [o, g] = s.split(':');
+    return { opts: o.split('/').map(norm), min: PTS[(g || '').trim()] || 0 };
+  }).sort((x, y) => (x.opts.includes('*') ? 99 : x.opts.length) - (y.opts.includes('*') ? 99 : y.opts.length));
   const used = new Set();
   let r = 0;
-  for (const o of slots) {
+  for (const s of slots) {
     let bi = -1;
-    pts.forEach((g, i) => { if (!used.has(i) && (o.includes('*') || o.includes(norm(g.name))) && (bi < 0 || g.pts > pts[bi].pts)) bi = i; });
+    pts.forEach((g, i) => { if (!used.has(i) && g.pts >= s.min && (s.opts.includes('*') || s.opts.includes(norm(g.name))) && (bi < 0 || g.pts > pts[bi].pts)) bi = i; });
     if (bi < 0) return null;
     used.add(bi);
     r += pts[bi].pts;
@@ -601,7 +604,7 @@ function Drawer({ me, page, admin, go, onClose }) {
   useEffect(() => {
     if (me) sb.from('requests').select('id, status, created_at, services(title)').eq('user_id', me.id).order('created_at').then(({ data }) => setRs(data || []));
   }, []);
-  const items = [['home', 'Home', 'home'], ['guide', 'Guide', 'book'], ['services', 'Services', 'grid'], ...(me ? [['requests', 'My requests', 'list']] : []), ['analyzer', 'Course analyzer', 'calc'], ...(me ? [['news', 'Announcements', 'bell'], ['feedback', 'Feedback', 'chat'], ['account', 'My account', 'user']] : []), ['privacy', 'Privacy policy', 'shield'], ...(admin ? [['admin', 'Admin', 'id']] : [])];
+  const items = [['home', 'Home', 'home'], ['guide', 'Guide', 'book'], ['services', 'Services', 'grid'], ...(me ? [['requests', 'My requests', 'list']] : []), ['analyzer', 'Course analyzer', 'calc'], ...(me ? [['news', 'Announcements', 'bell'], ['feedback', 'Feedback', 'chat'], ['account', 'My account', 'user']] : []), ['privacy', 'Privacy policy', 'shield'], ...(admin ? [['admin', me.role === 'admin' ? 'Admin' : 'Staff panel', 'id']] : [])];
   return (
     <>
       <div className="scrim" onClick={onClose} />
@@ -724,7 +727,7 @@ function Courses() {
       <div className="card paid">
         <h3>Course list</h3>
         <p className="note">{n === null ? 'Counting...' : `${n} courses loaded.`} The analyzer uses these rows.</p>
-        <p className="note">Choose a CSV file from your phone. First row: programme,institution,req,cutoff,year. In req, separate the four subject slots with ; and choices inside a slot with /. Use * for any subject.</p>
+        <p className="note">Choose a CSV file from your phone. First row: programme,institution,req,cutoff,year. In req, separate the four subject slots with ; and choices inside a slot with /. Add :C+ after a slot for its minimum grade. Use * for any subject.</p>
         <input type="file" accept=".csv,text/csv" onChange={pick} />
         {msg && <p className="toast">{msg}</p>}
         <button className="link" onClick={wipe}>Delete all courses</button>
@@ -733,7 +736,38 @@ function Courses() {
   );
 }
 
-function Admin({ services, reload }) {
+function Team() {
+  const [list, setList] = useState([]);
+  const [u, setU] = useState('');
+  const [msg, setMsg] = useState('');
+  const load = () => sb.from('profiles').select('id, full_name, username, phone').eq('role', 'staff').order('full_name').then(({ data }) => setList(data || []));
+  useEffect(() => { load(); }, []);
+  async function setRole(name, role) {
+    const { error } = await sb.rpc('set_role', { uname: name, new_role: role });
+    setMsg(error ? error.message : role === 'staff' ? 'Added to staff.' : 'Removed from staff.');
+    if (!error) { setU(''); load(); }
+  }
+  return (
+    <>
+      <div className="card paid">
+        <h3>Staff</h3>
+        <p className="note">Staff can handle requests, message students and open student files. They cannot approve payments, change prices or publish announcements. The person must create an account in the app first.</p>
+        <input placeholder="Username of the person to add" value={u} onChange={(e) => setU(e.target.value)} />
+        <button className="cta sm" onClick={() => setRole(u.trim(), 'staff')}>Make staff</button>
+        {msg && <p className="toast">{msg}</p>}
+      </div>
+      {list.length === 0 && <p className="muted">No staff yet.</p>}
+      {list.map((s) => (
+        <div className="card" key={s.id}>
+          <div className="row"><div><h3>{s.full_name}</h3><p className="note">@{s.username}, {s.phone}</p></div><button className="link" onClick={() => setRole(s.username, 'student')}>Remove</button></div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function Admin({ services, reload, role }) {
+  const isAdmin = role === 'admin';
   const [tab, setTab] = useState('requests');
   const [reqs, setReqs] = useState([]);
   const [fb, setFb] = useState([]);
@@ -784,10 +818,11 @@ function Admin({ services, reload }) {
     if (window.confirm('Delete this announcement?')) { await sb.from('announcements').delete().eq('id', id); load(); }
   }
   const shown = reqs.filter((r) => flt === 'all' || (flt === 'pay' ? pays.some((p) => p.request_id === r.id && p.status === 'pending') : r.status === flt));
+  const tabsList = isAdmin ? [['requests', 'Requests'], ['calc', 'Analyzer'], ['courses', 'Courses'], ['news', 'Announcements'], ['prices', 'Prices'], ['staff', 'Staff'], ['fb', 'Feedback']] : [['requests', 'Requests']];
   return (
     <>
-      <p className="eyebrow">Admin</p><h1>Control room</h1>
-      <div className="seg">{[['requests', 'Requests'], ['calc', 'Analyzer'], ['courses', 'Courses'], ['news', 'Announcements'], ['prices', 'Prices'], ['fb', 'Feedback']].map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
+      <p className="eyebrow">{isAdmin ? 'Admin' : 'Staff'}</p><h1>{isAdmin ? 'Control room' : 'Staff panel'}</h1>
+      <div className="seg">{tabsList.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
       {tab === 'requests' && (
         <>
           <p className="note">Oldest application first. {reqs.filter((r) => r.status === 'new').length} new.</p>
@@ -802,7 +837,7 @@ function Admin({ services, reload }) {
                 {open === r.id && (
                   <div className="detail">
                     <p className="note">{r.mode === 'live' ? 'Live help' : 'Done for you'}{priceOf(r) ? `, KES ${priceOf(r)}` : ''} | @{r.profiles?.username}</p>
-                    {pays.filter((p) => p.request_id === r.id).map((p) => (<div key={p.id} className="toast"><p>KES {p.amount}, code {p.receipt || 'none'} ({p.status})</p>{p.status === 'pending' && <div className="seg"><button className="on" onClick={() => payOk(p, r)}>Approve</button><button onClick={() => payNo(p)}>Reject</button></div>}</div>))}
+                    {pays.filter((p) => p.request_id === r.id).map((p) => (<div key={p.id} className="toast"><p>KES {p.amount}, code {p.receipt || 'none'} ({p.status})</p>{p.status === 'pending' && isAdmin && <div className="seg"><button className="on" onClick={() => payOk(p, r)}>Approve</button><button onClick={() => payNo(p)}>Reject</button></div>}</div>))}
                     {(r.services?.fields || []).map(([k, label]) => (r.form?.[k] ? <p key={k}><span className="muted">{label}: </span>{r.form[k]}</p> : null))}
                     {r.consent_at && <p className="note">Consent given {new Date(r.consent_at).toLocaleDateString()}</p>}
                     <a href={wa(r.profiles?.phone)}>Message on WhatsApp</a>
@@ -858,6 +893,7 @@ function Admin({ services, reload }) {
           {pays.filter((p) => p.purpose === 'calculator' && p.status === 'paid').map((p) => <p key={p.id} className="note">{ds(p.created_at)}, {p.profiles?.full_name}, {p.receipt}</p>)}
         </>
       )}
+      {tab === 'staff' && isAdmin && <Team />}
       {tab === 'courses' && <Courses />}
       {tab === 'prices' && (<><PayInfo /><Prices services={services} reload={reload} /></>)}
       {tab === 'fb' && fb.map((x) => <div className="card" key={x.id}><p>{x.message}</p><p className="note">@{x.profiles?.username}</p></div>)}
@@ -935,7 +971,7 @@ export default function App() {
 
   if (session === undefined) return <div className="boot">Tribridge Cyber</div>;
   if (uid && !me) return <div className="boot">Loading</div>;
-  const admin = me?.role === 'admin' && isApp;
+  const admin = ['admin', 'staff'].includes(me?.role) && isApp;
   const gated = ['requests', 'account', 'news', 'feedback'].includes(page) || (page === 'admin' && !admin);
   const view = !me && gated ? 'auth' : page;
   const onApply = (s, pf) => { if (!me) return go('auth'); setPre(pf || null); setApplying(s); };
@@ -960,7 +996,7 @@ export default function App() {
         {view === 'account' && me && <Account me={me} reload={loadMe} go={go} />}
         {view === 'privacy' && <Privacy />}
         {view === 'auth' && <Auth go={go} />}
-        {view === 'admin' && admin && <Admin services={services} reload={loadServices} />}
+        {view === 'admin' && admin && <Admin services={services} reload={loadServices} role={me.role} />}
       </main>
       <nav className="tabs">
         {tabs.map(([k, l, ic]) => (<button key={l} className={page === k ? 'on' : ''} onClick={() => go(k)}><Ic n={ic} />{l}</button>))}
