@@ -17,43 +17,61 @@ async function accessToken(sa: any) {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${head}.${claim}.${b64(sig)}`,
   });
-  return (await r.json()).access_token;
+  const j = await r.json();
+  if (!j.access_token) throw new Error('Google sign-in failed: ' + (j.error_description || j.error || 'unknown'));
+  return j.access_token;
 }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
-  const { data: { user } } = await admin.auth.getUser((req.headers.get('Authorization') ?? '').replace('Bearer ', ''));
-  if (!user) return reply({ ok: false }, 401);
-  const input = await req.json();
-  const { data: me }: any = await admin.from('profiles').select('role').eq('id', user.id).single();
-  let title = '', body = '', ids: string[] | null = null;
-  if (input.kind === 'announcement' && me?.role === 'admin') {
-    title = String(input.title ?? 'Tribridge Cyber');
-    body = String(input.body ?? '').slice(0, 180);
-  } else if (input.kind === 'request' || input.kind === 'payment') {
-    const { data: r }: any = await admin.from('requests').select('user_id, services(title)').eq('id', input.request_id).single();
-    if (!r || r.user_id !== user.id) return reply({ ok: false }, 403);
-    title = input.kind === 'payment' ? 'Payment to approve' : 'New request';
-    body = r.services?.title ?? 'A student applied';
-    const { data: a }: any = await admin.from('profiles').select('id').eq('role', 'admin');
-    ids = (a ?? []).map((x: any) => x.id);
-  } else if (input.kind === 'calc') {
-    title = 'Payment to approve';
-    body = 'Course analyzer';
-    const { data: a }: any = await admin.from('profiles').select('id').eq('role', 'admin');
-    ids = (a ?? []).map((x: any) => x.id);
-  } else return reply({ ok: false }, 400);
-  let q: any = admin.from('push_tokens').select('token');
-  if (ids) q = q.in('user_id', ids);
-  const { data: toks }: any = await q;
-  const sa = JSON.parse(env('FCM_SERVICE_ACCOUNT'));
-  const at = await accessToken(sa);
-  await Promise.all((toks ?? []).map(async ({ token }: any) => {
-    const res = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
-      method: 'POST', headers: { Authorization: 'Bearer ' + at, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: { token, notification: { title, body }, android: { priority: 'HIGH' } } }),
-    });
-    if (res.status === 404) await admin.from('push_tokens').delete().eq('token', token);
-  }));
-  return reply({ ok: true, sent: (toks ?? []).length });
+  try {
+    const { data: { user } } = await admin.auth.getUser((req.headers.get('Authorization') ?? '').replace('Bearer ', ''));
+    if (!user) return reply({ ok: false, error: 'Please log in again.' });
+    const input = await req.json();
+    const { data: me }: any = await admin.from('profiles').select('role').eq('id', user.id).single();
+    const admins = async () => ((await admin.from('profiles').select('id').eq('role', 'admin')).data ?? []).map((x: any) => x.id);
+    let title = '', body = '', ids: string[] | null = null;
+    if (input.kind === 'test') {
+      title = 'Test notification';
+      body = 'If you see this, notifications work on this phone.';
+      ids = [user.id];
+    } else if (input.kind === 'announcement' && me?.role === 'admin') {
+      title = String(input.title ?? 'Tribridge Cyber');
+      body = String(input.body ?? '').slice(0, 180);
+    } else if (input.kind === 'request' || input.kind === 'payment') {
+      const { data: r }: any = await admin.from('requests').select('user_id, services(title)').eq('id', input.request_id).single();
+      if (!r || r.user_id !== user.id) return reply({ ok: false, error: 'Not allowed.' });
+      title = input.kind === 'payment' ? 'Payment to approve' : 'New request';
+      body = r.services?.title ?? 'A student applied';
+      ids = await admins();
+    } else if (input.kind === 'calc') {
+      title = 'Payment to approve';
+      body = 'Course analyzer';
+      ids = await admins();
+    } else return reply({ ok: false, error: 'Not allowed.' });
+    let q: any = admin.from('push_tokens').select('token');
+    if (ids) q = q.in('user_id', ids);
+    const { data: toks }: any = await q;
+    if (!toks || toks.length === 0) return reply({ ok: true, sent: 0, total: 0, errors: ['No phone has registered for notifications yet.'] });
+    let sa: any;
+    try { sa = JSON.parse(env('FCM_SERVICE_ACCOUNT')); } catch (_e) { return reply({ ok: false, error: 'The FCM_SERVICE_ACCOUNT secret is missing or is not valid JSON.' }); }
+    const at = await accessToken(sa);
+    let sent = 0;
+    const errors: string[] = [];
+    await Promise.all(toks.map(async ({ token }: any) => {
+      const res = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
+        method: 'POST', headers: { Authorization: 'Bearer ' + at, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: { token, notification: { title, body }, android: { priority: 'HIGH' } } }),
+      });
+      if (res.ok) sent++;
+      else {
+        const j: any = await res.json().catch(() => ({}));
+        errors.push(`${res.status}: ${j?.error?.message ?? 'FCM error'}`);
+        if (res.status === 404) await admin.from('push_tokens').delete().eq('token', token);
+      }
+    }));
+    return reply({ ok: true, sent, total: toks.length, errors: errors.slice(0, 3) });
+  } catch (e) {
+    return reply({ ok: false, error: String((e as Error)?.message ?? e) });
+  }
 });

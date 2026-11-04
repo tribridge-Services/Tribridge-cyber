@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 
 const sb = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
 const isApp = Capacitor.isNativePlatform();
@@ -13,6 +15,22 @@ const AWARE = 'I have read the Privacy Policy and I am aware of how Tribridge Cy
 const wa = (p) => 'https://wa.me/' + String(p).replace(/\D/g, '').replace(/^0/, '254');
 const priceOf = (r) => (r.mode === 'live' ? r.services?.price_live : r.services?.price_full);
 const ds = (d) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function reportHtml(me, sum, courses, when) {
+  const rows = courses.map((c) => `<tr><td>${esc(c.programme)}</td><td>${esc(c.institution)}</td><td>${c.cutoff}</td><td>${c.score}</td><td>${c.diff >= 0 ? 'Likely' : 'Borderline'}</td></tr>`).join('');
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Course analysis</title><style>body{font-family:Arial,sans-serif;margin:20px;color:#0b1b26}h1{margin:0;color:#007c8a}table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid #cfd8dc;padding:6px;text-align:left}th{background:#e0f7fa}.m{color:#546e7a}</style></head><body><h1>Tribridge Cyber</h1><p class="m">Course analysis for ${esc(me.full_name)}, ${new Date(when).toLocaleDateString('en-GB')}</p><p>Best seven subjects: <b>${sum.total} of 84</b>.${sum.cluster ? ` Cluster points: about <b>${sum.cluster}</b> of 48 (estimate).` : ''}</p><p><b>Grades:</b> ${sum.grades.map((g) => esc(g.name) + ' ' + esc(g.g)).join(', ')}</p><h3>Courses you may qualify for</h3><table><tr><th>Course</th><th>University</th><th>Cut-off</th><th>Your estimate</th><th>Chance</th></tr>${rows}</table><p class="m">Estimates use the last published KUCCPS cut-off points and an approximate cluster formula. KUCCPS works out your official weighted cluster points in its portal. Placement is not guaranteed.</p></body></html>`;
+}
+async function saveFile(name, text) {
+  if (isApp) {
+    const r = await Filesystem.writeFile({ path: name, data: text, directory: Directory.Cache, encoding: Encoding.UTF8 });
+    await Share.share({ title: name, url: r.uri, dialogTitle: 'Save or share your results' });
+  } else {
+    const el = document.createElement('a');
+    el.href = URL.createObjectURL(new Blob([text], { type: 'text/html' }));
+    el.download = name;
+    el.click();
+  }
+}
 const PTS = { A: 12, 'A-': 11, 'B+': 10, B: 9, 'B-': 8, 'C+': 7, C: 6, 'C-': 5, 'D+': 4, D: 3, 'D-': 2, E: 1 };
 const SUBJECTS = {
   Compulsory: ['English', 'Kiswahili', 'Mathematics'],
@@ -383,22 +401,31 @@ function CalcPay({ price, instr, claims, onSent }) {
 }
 
 function Analyzer({ me, reload, services, onApply }) {
-  const unlocked = me.role === 'admin' || me.calc_unlocked;
+  const isAdmin = me.role === 'admin';
+  const credits = me.calc_credits || 0;
+  const active = me.calc_until && new Date(me.calc_until) > new Date();
+  const can = isAdmin || credits > 0 || active;
   const svc = services.find((s) => s.id === 'analyzer');
   const kuccps = services.find((s) => s.id === 'kuccps');
   const [instr, setInstr] = useState('');
   const [claims, setClaims] = useState([]);
+  const [saved, setSaved] = useState([]);
   const [rows, setRows] = useState(['English', 'Kiswahili', 'Mathematics', 'Biology', 'Chemistry', 'Physics', 'Geography'].map((name, i) => ({ name, g: 'B', c: i < 4 })));
   const [progs, setProgs] = useState(null);
+  const [sum, setSum] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
   const [flt, setFlt] = useState('likely');
   const [order, setOrder] = useState('best');
   const [q, setQ] = useState('');
   const [sel, setSel] = useState([]);
   const [lim, setLim] = useState(40);
   const loadClaims = () => sb.from('payments').select('*').eq('user_id', me.id).eq('purpose', 'calculator').then(({ data }) => setClaims(data || []));
+  const loadSaved = () => sb.from('calc_results').select('*').eq('user_id', me.id).order('created_at', { ascending: false }).then(({ data }) => setSaved(data || []));
   useEffect(() => {
     reload();
     loadClaims();
+    loadSaved();
     sb.from('settings').select('value').eq('key', 'pay_instructions').maybeSingle().then(({ data }) => setInstr(data?.value || 'Payment details will be shown here soon.'));
     const ch = sb.channel('calc').on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => { loadClaims(); reload(); }).subscribe();
     return () => { sb.removeChannel(ch); };
@@ -410,6 +437,10 @@ function Analyzer({ me, reload, services, onApply }) {
   const r4 = cl.reduce((x, r) => x + PTS[r.g], 0);
   const C = cl.length === 4 && rows.length >= 7 ? Math.sqrt((r4 / 48) * (t / 84)) * 48 : null;
   async function find() {
+    setBusy(true);
+    setMsg('');
+    const { data: ok, error } = await sb.rpc('start_calc');
+    if (error || !ok) { setMsg('No uses left. Pay again to run it again.'); setBusy(false); reload(); return; }
     let all = [];
     let from = 0;
     for (;;) {
@@ -418,49 +449,63 @@ function Analyzer({ me, reload, services, onApply }) {
       if (!data || data.length < 1000) break;
       from += 1000;
     }
+    const courses = all.map((p) => ({ ...p, score: score(p, pts, t) })).filter((p) => p.score !== null).map((p) => ({ ...p, diff: p.score - Number(p.cutoff) }))
+      .filter((p) => p.diff >= -2).sort((x, y) => Number(y.cutoff) - Number(x.cutoff)).slice(0, 400)
+      .map((p) => ({ programme: p.programme, institution: p.institution, cutoff: Number(p.cutoff), score: Math.round(p.score * 100) / 100, diff: Math.round(p.diff * 100) / 100 }));
+    const summary = { grades: rows.map((r) => ({ name: r.name, g: r.g })), total: t, cluster: C ? C.toFixed(2) : null };
+    await sb.from('calc_results').insert({ user_id: me.id, summary, courses });
+    setSum(summary);
+    setProgs(courses.map((c, i) => ({ id: i, ...c })));
     setLim(40);
-    setProgs(all.map((p) => ({ ...p, score: score(p, pts, t) })).filter((p) => p.score !== null).map((p) => ({ ...p, diff: p.score - Number(p.cutoff) })));
+    setMsg(courses.length ? 'Done. Your results are saved below. Tap Download to keep a copy.' : 'No matching courses found. The course list may not be loaded yet.');
+    setBusy(false);
+    reload();
+    loadSaved();
   }
+  const openSaved = (r) => { setSum(r.summary); setProgs((r.courses || []).map((c, i) => ({ id: i, ...c }))); setLim(40); window.scrollTo(0, 0); };
+  const download = (summary, courses, when) => saveFile('Tribridge-course-analysis.html', reportHtml(me, summary, courses, when)).catch(() => setMsg('Could not save the file. Try again.'));
   const list = (progs || [])
     .filter((p) => (flt === 'likely' ? p.diff >= 0 : p.diff >= -2 && p.diff < 0))
     .filter((p) => (p.programme + ' ' + p.institution).toLowerCase().includes(q.toLowerCase()))
     .sort((x, y) => (order === 'best' ? Number(y.cutoff) - Number(x.cutoff) : y.diff - x.diff));
-  if (!unlocked) {
-    return (
-      <>
-        <p className="eyebrow">Course analyzer</p><h1>Cluster points and your courses</h1>
-        <p className="lead">{svc?.description}</p>
-        <div className="card paid">
-          <div className="row"><h3>Unlock the analyzer</h3><span className="px">KES {svc?.price_full || 100}</span></div>
-          <p className="note">One payment unlocks the cluster points calculator and the list of courses you qualify for. We unlock it after we approve your payment.</p>
-          <CalcPay price={svc?.price_full || 100} instr={instr} claims={claims} onSent={loadClaims} />
-        </div>
-      </>
-    );
-  }
   return (
     <>
       <p className="eyebrow">Course analyzer</p><h1>Cluster points and your courses</h1>
-      <p className="muted">Add every subject you sat and its grade. Tick the four subjects for the cluster. We use your best seven for the total.</p>
-      {rows.map((r, i) => (
-        <div className="grade" key={i}>
-          <select value={r.name} onChange={(e) => upd(i, { name: e.target.value })}>
-            {Object.entries(SUBJECTS).map(([grp, l]) => <optgroup key={grp} label={grp}>{l.map((n) => <option key={n}>{n}</option>)}</optgroup>)}
-          </select>
-          <select value={r.g} onChange={(e) => upd(i, { g: e.target.value })}>{Object.keys(PTS).map((g) => <option key={g}>{g}</option>)}</select>
-          <label className="note"><input type="checkbox" checked={r.c} onChange={(e) => upd(i, { c: e.target.checked })} /> Cluster</label>
-          <button className="link" onClick={() => setRows(rows.filter((_, j) => j !== i))}>Remove</button>
+      {msg && <p className="toast">{msg}</p>}
+      {!can && (
+        <div className="card paid">
+          <div className="row"><h3>Unlock one analysis</h3><span className="px">KES {svc?.price_full || 100}</span></div>
+          <p className="note">{svc?.description} One payment gives you one analysis. Your results are saved and you can download them. To run it again, pay again.</p>
+          <CalcPay price={svc?.price_full || 100} instr={instr} claims={claims} onSent={loadClaims} />
         </div>
-      ))}
-      <button className="link" onClick={() => setRows([...rows, { name: 'English', g: 'B', c: false }])}>Add a subject</button>
-      <div className="card paid">
-        <p className="note">Best seven subjects: {t} of 84</p>
-        {C ? <h3>Cluster points about {C.toFixed(3)} of 48 (estimate)</h3> : <p className="muted">Add at least 7 subjects and tick exactly four for the cluster.</p>}
-        <p className="note">KUCCPS works out the official weighted points from KNEC data. Check yours in the KUCCPS portal.</p>
-      </div>
-      <button className="cta full" onClick={find}>Find my courses</button>
+      )}
+      {can && (
+        <>
+          <p className="muted">Add every subject you sat and its grade. Tick the four subjects for the cluster. We use your best seven for the total.</p>
+          <p className="note">{isAdmin ? 'Admin: unlimited use.' : active ? 'Your analysis session is open for a short time. You can correct a grade and run it again.' : `Analyses left: ${credits}`}</p>
+          {rows.map((r, i) => (
+            <div className="grade" key={i}>
+              <select value={r.name} onChange={(e) => upd(i, { name: e.target.value })}>
+                {Object.entries(SUBJECTS).map(([grp, l]) => <optgroup key={grp} label={grp}>{l.map((nm) => <option key={nm}>{nm}</option>)}</optgroup>)}
+              </select>
+              <select value={r.g} onChange={(e) => upd(i, { g: e.target.value })}>{Object.keys(PTS).map((g) => <option key={g}>{g}</option>)}</select>
+              <label className="note"><input type="checkbox" checked={r.c} onChange={(e) => upd(i, { c: e.target.checked })} /> Cluster</label>
+              <button className="link" onClick={() => setRows(rows.filter((_, j) => j !== i))}>Remove</button>
+            </div>
+          ))}
+          <button className="link" onClick={() => setRows([...rows, { name: 'English', g: 'B', c: false }])}>Add a subject</button>
+          <div className="card paid">
+            <p className="note">Best seven subjects: {t} of 84</p>
+            {C ? <h3>Cluster points about {C.toFixed(3)} of 48 (estimate)</h3> : <p className="muted">Add at least 7 subjects and tick exactly four for the cluster.</p>}
+            <p className="note">KUCCPS works out the official weighted points from KNEC data. Check yours in the KUCCPS portal.</p>
+          </div>
+          <button className="cta full" disabled={busy} onClick={find}>{busy ? 'Working...' : 'Find my courses'}</button>
+        </>
+      )}
       {progs && (
         <>
+          <h2>Your results</h2>
+          <button className="ghost" onClick={() => download(sum, progs, new Date())}>Download my results</button>
           <div className="seg">
             {[['likely', 'Likely'], ['near', 'Borderline']].map(([k, l]) => <button key={k} className={flt === k ? 'on' : ''} onClick={() => setFlt(k)}>{l}</button>)}
             {[['best', 'Best first'], ['safe', 'Safest first']].map(([k, l]) => <button key={k} className={order === k ? 'on' : ''} onClick={() => setOrder(k)}>{l}</button>)}
@@ -473,7 +518,7 @@ function Analyzer({ me, reload, services, onApply }) {
             return (
               <label className="card pick" key={p.id}>
                 <input type="checkbox" checked={sel.includes(k)} onChange={() => setSel(sel.includes(k) ? sel.filter((x) => x !== k) : [...sel, k])} />
-                <span><b>{p.programme}</b><span className="note"><br />{p.institution}, cut-off {p.cutoff}, your estimate {p.score.toFixed(1)}</span></span>
+                <span><b>{p.programme}</b><span className="note"><br />{p.institution}, cut-off {p.cutoff}, your estimate {p.score}</span></span>
               </label>
             );
           })}
@@ -481,11 +526,30 @@ function Analyzer({ me, reload, services, onApply }) {
           {sel.length > 0 && kuccps && <button className="cta full" onClick={() => onApply(kuccps, { choices: sel.join('; ') })}>Use {sel.length} selected courses in my KUCCPS application</button>}
         </>
       )}
+      {saved.length > 0 && (
+        <>
+          <h2>My saved results</h2>
+          {saved.map((r) => (
+            <div className="card" key={r.id}>
+              <p><b>{new Date(r.created_at).toLocaleDateString('en-GB')}</b> <span className="note">{(r.courses || []).length} courses, cluster {r.summary?.cluster || 'n/a'}</span></p>
+              <button className="link" onClick={() => openSaved(r)}>Open</button> <button className="link" onClick={() => download(r.summary, r.courses || [], r.created_at)}>Download</button>
+            </div>
+          ))}
+        </>
+      )}
     </>
   );
 }
 
-function Account({ me, reload, go }) {
+function Account({ me, reload, go, push, enablePush }) {
+  const [pm, setPm] = useState('');
+  async function testPush() {
+    setPm('Sending...');
+    const { data, error } = await sb.functions.invoke('notify', { body: { kind: 'test' } });
+    if (error) return setPm('The notify function is not reachable. Run Deploy functions in GitHub. ' + error.message);
+    if (!data?.ok) return setPm('Failed: ' + (data?.error || 'unknown error'));
+    setPm(data.sent ? `Sent to ${data.sent} phone(s). If nothing appears, close the app and send again.` : 'Not sent. ' + (data.errors?.[0] || ''));
+  }
   const [f, setF] = useState({ full_name: me.full_name || '', username: me.username || '', phone: me.phone || '', dob: me.dob || '', county: me.county || '', kcse_index: me.kcse_index || '', parent_phone: me.parent_phone || '' });
   const [msg, setMsg] = useState('');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -515,6 +579,17 @@ function Account({ me, reload, go }) {
         {msg && <p className="toast">{msg}</p>}
         <button className="cta full">Save changes</button>
       </form>
+      {isApp && (
+        <>
+          <h2>Notifications</h2>
+          <div className="card paid">
+            <p>{!PUSH ? 'This app was built without notification support. Add the Firebase file in GitHub, then build the app again.' : push === 'on' ? 'Notifications are on for this phone.' : push === 'denied' ? 'Notifications are blocked. Open your phone Settings, then Apps, Tribridge Cyber, Notifications, and allow them.' : push === 'checking' ? 'Checking...' : push}</p>
+            {PUSH && push !== 'on' && <button className="cta sm" onClick={enablePush}>Turn on notifications</button>}
+            {PUSH && <button className="ghost" onClick={testPush}>Send a test notification</button>}
+            {pm && <p className="toast">{pm}</p>}
+          </div>
+        </>
+      )}
       <h2>My documents</h2>
       <p className="muted">Upload clear photos or PDFs. Only you and Tribridge Cyber can see them.</p>
       <Files uid={me.id} />
@@ -939,10 +1014,19 @@ export default function App() {
   const [menu, setMenu] = useState(false);
   const [applying, setApplying] = useState(null);
   const [pre, setPre] = useState(null);
+  const [push, setPush] = useState(PUSH ? 'checking' : 'off');
+  const [banner, setBanner] = useState('');
   const uid = session?.user?.id;
   const go = (p) => { setPage(p); setMenu(false); setApplying(null); window.scrollTo(0, 0); };
   const loadMe = () => sb.from('profiles').select('*').eq('id', uid).single().then(({ data }) => setMe(data));
   const loadServices = () => sb.from('services').select('*').order('sort').then(({ data }) => setServices(data || []));
+  const enablePush = async () => {
+    try {
+      const p = await PushNotifications.requestPermissions();
+      if (p.receive !== 'granted') return setPush('denied');
+      await PushNotifications.register();
+    } catch (e) { setPush('Error: ' + (e?.message || e)); }
+  };
 
   useEffect(() => {
     sb.auth.getSession().then(({ data }) => setSession(data.session));
@@ -964,8 +1048,13 @@ export default function App() {
   useEffect(() => {
     if (!PUSH || !uid) return;
     PushNotifications.removeAllListeners().then(() => {
-      PushNotifications.addListener('registration', (t) => sb.rpc('save_token', { t: t.value }));
-      PushNotifications.requestPermissions().then((p) => { if (p.receive === 'granted') PushNotifications.register(); });
+      PushNotifications.addListener('registration', async (t) => {
+        const { error } = await sb.rpc('save_token', { t: t.value });
+        setPush(error ? 'Could not save this phone: ' + error.message : 'on');
+      });
+      PushNotifications.addListener('registrationError', (e) => setPush('Registration failed: ' + (e?.error || 'unknown error')));
+      PushNotifications.addListener('pushNotificationReceived', (n) => setBanner([n.title, n.body].filter(Boolean).join(': ')));
+      enablePush();
     });
   }, [uid]);
 
@@ -978,6 +1067,7 @@ export default function App() {
   const tabs = [['home', 'Home', 'home'], ['guide', 'Guide', 'book'], ['services', 'Services', 'grid'], [me ? 'requests' : 'auth', 'Requests', 'list'], [me ? 'account' : 'auth', 'Account', 'user']];
   return (
     <>
+      {banner && <div className="toast bannerfix" onClick={() => setBanner('')}>{banner}</div>}
       <header className="top">
         <button onClick={() => go('home')} aria-label="Home"><Brand /></button>
         <div className="right">
@@ -993,7 +1083,7 @@ export default function App() {
         {view === 'analyzer' && (me ? <Analyzer me={me} reload={loadMe} services={services} onApply={onApply} /> : <Auth go={go} />)}
         {view === 'news' && <News news={news} />}
         {view === 'feedback' && me && <Feedback me={me} />}
-        {view === 'account' && me && <Account me={me} reload={loadMe} go={go} />}
+        {view === 'account' && me && <Account me={me} reload={loadMe} go={go} push={push} enablePush={enablePush} />}
         {view === 'privacy' && <Privacy />}
         {view === 'auth' && <Auth go={go} />}
         {view === 'admin' && admin && <Admin services={services} reload={loadServices} role={me.role} />}
