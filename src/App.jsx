@@ -12,6 +12,23 @@ const notify = (body) => sb.functions.invoke('notify', { body }).catch(() => {})
 const CATS = [['id_front', 'National ID, front'], ['id_back', 'National ID, back'], ['birth', 'Birth certificate'], ['results', 'KCSE results slip'], ['photo', 'Passport photo'], ['admission', 'Admission letter'], ['other', 'Other']];
 const CONSENT = 'I consent to Tribridge Cyber handling and processing the details and documents I give, only to help me with my applications. I confirm the details are true. I am 18 or older, or my parent or guardian agrees.';
 const AWARE = 'I have read the Privacy Policy and I am aware of how Tribridge Cyber handles my data.';
+const APK_URL = import.meta.env.VITE_APK_URL || '';
+const COUNTIES = ['Mombasa', 'Kwale', 'Kilifi', 'Tana River', 'Lamu', 'Taita Taveta', 'Garissa', 'Wajir', 'Mandera', 'Marsabit', 'Isiolo', 'Meru', 'Tharaka-Nithi', 'Embu', 'Kitui', 'Machakos', 'Makueni', 'Nyandarua', 'Nyeri', 'Kirinyaga', "Murang'a", 'Kiambu', 'Turkana', 'West Pokot', 'Samburu', 'Trans Nzoia', 'Uasin Gishu', 'Elgeyo-Marakwet', 'Nandi', 'Baringo', 'Laikipia', 'Nakuru', 'Narok', 'Kajiado', 'Kericho', 'Bomet', 'Kakamega', 'Vihiga', 'Bungoma', 'Busia', 'Siaya', 'Kisumu', 'Homa Bay', 'Migori', 'Kisii', 'Nyamira', 'Nairobi'];
+const QKEY = 'tb_queue';
+const getQ = () => { try { return JSON.parse(localStorage.getItem(QKEY) || '[]'); } catch (e) { return []; } };
+const setQ = (q) => { try { localStorage.setItem(QKEY, JSON.stringify(q)); } catch (e) { /* storage unavailable */ } };
+async function flushQueue() {
+  const q = getQ();
+  if (!q.length || !navigator.onLine) return 0;
+  const left = [];
+  let sent = 0;
+  for (const item of q) {
+    const { data, error } = await sb.from('requests').insert(item).select('id').single();
+    if (error) { if (/fetch|network/i.test(error.message)) left.push(item); } else { sent++; notify({ kind: 'request', request_id: data.id }); }
+  }
+  setQ(left);
+  return sent;
+}
 const wa = (p) => 'https://wa.me/' + String(p).replace(/\D/g, '').replace(/^0/, '254');
 const priceOf = (r) => (r.mode === 'live' ? r.services?.price_live : r.services?.price_full);
 const ds = (d) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
@@ -151,6 +168,13 @@ function Home({ go, me }) {
           <button className="link" onClick={() => go('guide')}>View all {GUIDE.length} steps →</button>
         </div>
       </section>
+      {!isApp && (
+        <div className="card paid">
+          <h3>Get the Android app</h3>
+          <p className="muted">Faster, and it tells you when your request moves. Download the app, then allow installs from this source when your phone asks.</p>
+          {APK_URL ? <a className="cta sm" href={APK_URL}>Download the app</a> : <span className="tag">Download link coming soon</span>}
+        </div>
+      )}
       <h2>What is free and what is paid</h2>
       <p className="lead">Before anything else, here is exactly how we work.</p>
       <FreePaid />
@@ -227,9 +251,14 @@ function Apply({ s, me, prefill, onClose, onDone }) {
   const [err, setErr] = useState('');
   async function submit(e) {
     e.preventDefault();
-    const { data, error } = await sb.from('requests').insert({ user_id: me.id, service_id: s.id, mode, form, consent_at: new Date().toISOString() }).select('id').single();
-    if (error) setErr(error.message);
-    else { notify({ kind: 'request', request_id: data.id }); onDone(); }
+    const clean = Object.fromEntries(Object.entries(form).filter(([k]) => !k.startsWith('_')));
+    const payload = { user_id: me.id, service_id: s.id, mode, form: clean, consent_at: new Date().toISOString() };
+    if (!navigator.onLine) { setQ([...getQ(), payload]); onDone(true); return; }
+    const { data, error } = await sb.from('requests').insert(payload).select('id').single();
+    if (error) {
+      if (/fetch|network/i.test(error.message)) { setQ([...getQ(), payload]); onDone(true); return; }
+      setErr(error.message);
+    } else { notify({ kind: 'request', request_id: data.id }); onDone(); }
   }
   return (
     <div className="sheet">
@@ -242,11 +271,27 @@ function Apply({ s, me, prefill, onClose, onDone }) {
           {s.price_full && (<label className={mode === 'full' ? 'on' : ''}><input type="radio" checked={mode === 'full'} onChange={() => setMode('full')} /><b>Done for you, KES {s.price_full}</b><small>You send your details and we do it for you.</small></label>)}
         </div>
         <p className="muted">Write your names in the same order as on your ID or birth certificate.</p>
-        {fields.map(([k, label, type]) => (
-          <label key={k} className="fld">{label}
-            <input type={type || 'text'} required={!/optional/i.test(label)} value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} />
-          </label>
-        ))}
+        {fields.map(([k, label, type, opts]) => {
+          if (type === 'h') return <h3 key={k} className="sec">{label}</h3>;
+          if (type === 'info') return <p key={k} className="note">{label}</p>;
+          const req = !/optional/i.test(label);
+          const val = form[k] ?? '';
+          const set = (v) => setForm({ ...form, [k]: v });
+          return (
+            <label key={k} className="fld">{label}
+              {type === 'county' || type === 'select' ? (
+                <select required={req} value={val} onChange={(e) => set(e.target.value)}>
+                  <option value="">Choose</option>
+                  {(type === 'county' ? COUNTIES : opts || []).map((o) => <option key={o}>{o}</option>)}
+                </select>
+              ) : type === 'textarea' ? (
+                <textarea required={req} value={val} onChange={(e) => set(e.target.value)} />
+              ) : (
+                <input type={type || 'text'} required={req} value={val} onChange={(e) => set(e.target.value)} />
+              )}
+            </label>
+          );
+        })}
         <p className="muted">Upload your documents under My account.</p>
         <label className="agree"><input type="checkbox" required checked={aw} onChange={(e) => setAw(e.target.checked)} /> {AWARE}</label>
         <label className="agree"><input type="checkbox" required checked={ok} onChange={(e) => setOk(e.target.checked)} /> {CONSENT}</label>
@@ -275,7 +320,7 @@ function Thread({ id }) {
   }
   return (
     <div className="thread">
-      {ms.map((m) => <p key={m.id} className={m.sender_id === uid ? 'mine' : ''}>{m.body}</p>)}
+      {ms.map((m) => <p key={m.id} className={m.bot ? 'bot' : m.sender_id === uid ? 'mine' : ''}>{m.bot && <b>Tribridge Bot: </b>}{m.body}</p>)}
       <input placeholder="Write a message" value={t} onChange={(e) => setT(e.target.value)} />
       <button className="cta sm" onClick={send}>Send</button>
     </div>
@@ -364,7 +409,7 @@ function Requests({ me }) {
           <div className="card" key={r.id}>
             <div className="row"><h3>{r.services?.title}</h3><Status s={r.status} /></div>
             <p className="note">{r.mode === 'live' ? 'Live help' : 'Done for you'}, applied {ds(r.created_at)}</p>
-            {paid ? <p className="toast">Paid. Thank you.</p> : wait ? <p className="toast">Payment sent (code {wait.receipt}). Waiting for approval.</p> : price ? (
+            {paid ? <p className="toast">Paid. Thank you.</p> : wait ? <p className="toast">Payment sent (code {wait.receipt}). {wait.note || 'Waiting for approval.'}</p> : price ? (
               <>{bad && <p className="err">Your last payment was not approved. Check the code and try again.</p>}<PayBox r={r} price={price} instr={instr} onSent={load} /></>
             ) : <p className="note">We will confirm the fee with you.</p>}
             <Toggle label="Messages"><Thread id={r.id} /></Toggle>
@@ -387,7 +432,7 @@ function CalcPay({ price, instr, claims, onSent }) {
     setCode('');
     onSent();
   }
-  if (wait) return <p className="toast">Payment sent (code {wait.receipt}). Waiting for approval.</p>;
+  if (wait) return <p className="toast">Payment sent (code {wait.receipt}). {wait.note || 'Waiting for approval.'}</p>;
   return (
     <div>
       {claims.some((c) => c.status === 'failed') && <p className="err">Your last payment was not approved. Check the code and try again.</p>}
@@ -915,7 +960,7 @@ function Admin({ services, reload, role }) {
                     {pays.filter((p) => p.request_id === r.id).map((p) => (<div key={p.id} className="toast"><p>KES {p.amount}, code {p.receipt || 'none'} ({p.status})</p>{p.status === 'pending' && isAdmin && <div className="seg"><button className="on" onClick={() => payOk(p, r)}>Approve</button><button onClick={() => payNo(p)}>Reject</button></div>}</div>))}
                     {(r.services?.fields || []).map(([k, label]) => (r.form?.[k] ? <p key={k}><span className="muted">{label}: </span>{r.form[k]}</p> : null))}
                     {r.consent_at && <p className="note">Consent given {new Date(r.consent_at).toLocaleDateString()}</p>}
-                    <a href={wa(r.profiles?.phone)}>Message on WhatsApp</a>
+                    <a href={wa(r.profiles?.phone)}>Message on WhatsApp</a> <button className="link" onClick={() => navigator.clipboard?.writeText([r.profiles?.full_name, r.profiles?.phone, ...(r.services?.fields || []).filter(([k]) => r.form?.[k]).map(([k, l]) => `${l}: ${r.form[k]}`)].join('\n'))}>Copy all details</button>
                     <Toggle label="Student files"><Files uid={r.user_id} /></Toggle>
                     <Toggle label="Messages"><Thread id={r.id} /></Toggle>
                     <div className="seg">{['new', 'in_progress', 'done', 'cancelled'].map((s) => <button key={s} className={r.status === s ? 'on' : ''} onClick={() => setStatus(r.id, s)}>{s.replace('_', ' ')}</button>)}</div>
@@ -1058,6 +1103,14 @@ export default function App() {
     });
   }, [uid]);
 
+  useEffect(() => {
+    if (!uid) return;
+    const run = () => flushQueue().then((n) => { if (n) setBanner(`Sent ${n} saved application${n > 1 ? 's' : ''}.`); });
+    run();
+    window.addEventListener('online', run);
+    return () => window.removeEventListener('online', run);
+  }, [uid]);
+
   if (session === undefined) return <div className="boot">Tribridge Cyber</div>;
   if (uid && !me) return <div className="boot">Loading</div>;
   const admin = ['admin', 'staff'].includes(me?.role) && isApp;
@@ -1092,7 +1145,7 @@ export default function App() {
         {tabs.map(([k, l, ic]) => (<button key={l} className={page === k ? 'on' : ''} onClick={() => go(k)}><Ic n={ic} />{l}</button>))}
       </nav>
       {menu && <Drawer me={me} page={page} admin={admin} go={go} onClose={() => setMenu(false)} />}
-      {applying && me && <Apply s={applying} me={me} prefill={pre} onClose={() => setApplying(null)} onDone={() => go('requests')} />}
+      {applying && me && <Apply s={applying} me={me} prefill={pre} onClose={() => setApplying(null)} onDone={(off) => { go('requests'); if (off) setBanner('Saved on your phone. We will send it as soon as you are online.'); }} />}
     </>
   );
 }

@@ -2,3 +2,6 @@ project_id = "tribridge"
 
 [functions.mpesa-callback]
 verify_jwt = false
+
+[functions.mpesa-sms]
+verify_jwt = false
