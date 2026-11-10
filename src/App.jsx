@@ -35,7 +35,7 @@ const ds = (d) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', mont
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 function reportHtml(me, sum, courses, when) {
   const rows = courses.map((c) => `<tr><td>${esc(c.programme)}</td><td>${esc(c.institution)}</td><td>${c.cutoff}</td><td>${c.score}</td><td>${c.diff >= 0 ? 'Likely' : 'Borderline'}</td></tr>`).join('');
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Course analysis</title><style>body{font-family:Arial,sans-serif;margin:20px;color:#0b1b26}h1{margin:0;color:#007c8a}table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid #cfd8dc;padding:6px;text-align:left}th{background:#e0f7fa}.m{color:#546e7a}</style></head><body><h1>Tribridge Cyber</h1><p class="m">Course analysis for ${esc(me.full_name)}, ${new Date(when).toLocaleDateString('en-GB')}</p><p>Best seven subjects: <b>${sum.total} of 84</b>.${sum.cluster ? ` Cluster points: about <b>${sum.cluster}</b> of 48 (estimate).` : ''}</p><p><b>Grades:</b> ${sum.grades.map((g) => esc(g.name) + ' ' + esc(g.g)).join(', ')}</p><h3>Courses you may qualify for</h3><table><tr><th>Course</th><th>University</th><th>Cut-off</th><th>Your estimate</th><th>Chance</th></tr>${rows}</table><p class="m">Estimates use the last published KUCCPS cut-off points and an approximate cluster formula. KUCCPS works out your official weighted cluster points in its portal. Placement is not guaranteed.</p></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Course analysis</title><style>body{font-family:Arial,sans-serif;margin:20px;color:#0b1b26}h1{margin:0;color:#007c8a}table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid #cfd8dc;padding:6px;text-align:left}th{background:#e0f7fa}.m{color:#546e7a}</style></head><body><h1>Tribridge Cyber</h1><p class="m">Course analysis for ${esc(me.full_name)}${sum.index_no ? ', index number ' + esc(sum.index_no) : ''}, ${new Date(when).toLocaleDateString('en-GB')}</p><p>Best seven subjects: <b>${sum.total} of 84</b>.${sum.cluster ? ` Cluster points: about <b>${sum.cluster}</b> of 48 (estimate).` : ''}</p><p><b>Grades:</b> ${sum.grades.map((g) => esc(g.name) + ' ' + esc(g.g)).join(', ')}</p><h3>Courses you may qualify for</h3><table><tr><th>Course</th><th>University</th><th>Cut-off</th><th>Your estimate</th><th>Chance</th></tr>${rows}</table><p class="m">Estimates use the last published KUCCPS cut-off points and an approximate cluster formula. KUCCPS works out your official weighted cluster points in its portal. Placement is not guaranteed.</p></body></html>`;
 }
 async function saveFile(name, text) {
   if (isApp) {
@@ -448,16 +448,17 @@ function CalcPay({ price, instr, claims, onSent }) {
 function Analyzer({ me, reload, services, onApply }) {
   const isAdmin = me.role === 'admin';
   const credits = me.calc_credits || 0;
-  const active = me.calc_until && new Date(me.calc_until) > new Date();
-  const can = isAdmin || credits > 0 || active;
+  const can = isAdmin || credits > 0;
   const svc = services.find((s) => s.id === 'analyzer');
   const kuccps = services.find((s) => s.id === 'kuccps');
   const [instr, setInstr] = useState('');
   const [claims, setClaims] = useState([]);
   const [saved, setSaved] = useState([]);
   const [rows, setRows] = useState(['English', 'Kiswahili', 'Mathematics', 'Biology', 'Chemistry', 'Physics', 'Geography'].map((name, i) => ({ name, g: 'B', c: i < 4 })));
-  const [progs, setProgs] = useState(null);
-  const [sum, setSum] = useState(null);
+  const [idx, setIdx] = useState('');
+  const [sure, setSure] = useState(false);
+  const [res, setRes] = useState(null);
+  const [left, setLeft] = useState(0);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [flt, setFlt] = useState('likely');
@@ -475,59 +476,58 @@ function Analyzer({ me, reload, services, onApply }) {
     const ch = sb.channel('calc').on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => { loadClaims(); reload(); }).subscribe();
     return () => { sb.removeChannel(ch); };
   }, []);
+  useEffect(() => {
+    if (!res) return;
+    const tick = () => {
+      const s = Math.max(0, Math.floor((new Date(res.expires_at).getTime() - Date.now()) / 1000));
+      setLeft(s);
+      if (s === 0) { setRes(null); setMsg('Your results have expired. To run the analyzer again, pay again.'); loadSaved(); }
+    };
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [res]);
   const upd = (i, p) => setRows(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
-  const pts = rows.map((r) => ({ name: r.name, pts: PTS[r.g] }));
-  const t = pts.map((x) => x.pts).sort((x, y) => y - x).slice(0, 7).reduce((x, y) => x + y, 0);
+  const pts = rows.map((r) => PTS[r.g]);
+  const t = [...pts].sort((x, y) => y - x).slice(0, 7).reduce((x, y) => x + y, 0);
   const cl = rows.filter((r) => r.c);
   const r4 = cl.reduce((x, r) => x + PTS[r.g], 0);
   const C = cl.length === 4 && rows.length >= 7 ? Math.sqrt((r4 / 48) * (t / 84)) * 48 : null;
   async function find() {
+    if (!/^[0-9]{6,12}(\/[0-9]{4})?$/.test(idx.trim())) return setMsg('Type your KCSE index number, for example 12345678/2025.');
     setBusy(true);
     setMsg('');
-    const { data: ok, error } = await sb.rpc('start_calc');
-    if (error || !ok) { setMsg('No uses left. Pay again to run it again.'); setBusy(false); reload(); return; }
-    let all = [];
-    let from = 0;
-    for (;;) {
-      const { data } = await sb.from('programmes').select('*').range(from, from + 999);
-      all = all.concat(data || []);
-      if (!data || data.length < 1000) break;
-      from += 1000;
-    }
-    const courses = all.map((p) => ({ ...p, score: score(p, pts, t) })).filter((p) => p.score !== null).map((p) => ({ ...p, diff: p.score - Number(p.cutoff) }))
-      .filter((p) => p.diff >= -2).sort((x, y) => Number(y.cutoff) - Number(x.cutoff)).slice(0, 400)
-      .map((p) => ({ programme: p.programme, institution: p.institution, cutoff: Number(p.cutoff), score: Math.round(p.score * 100) / 100, diff: Math.round(p.diff * 100) / 100 }));
-    const summary = { grades: rows.map((r) => ({ name: r.name, g: r.g })), total: t, cluster: C ? C.toFixed(2) : null };
-    await sb.from('calc_results').insert({ user_id: me.id, summary, courses });
-    setSum(summary);
-    setProgs(courses.map((c, i) => ({ id: i, ...c })));
-    setLim(40);
-    setMsg(courses.length ? 'Done. Your results are saved below. Tap Download to keep a copy.' : 'No matching courses found. The course list may not be loaded yet.');
+    const { data, error } = await sb.functions.invoke('analyze', { body: { grades: rows.map((r) => ({ name: r.name, g: r.g, c: r.c })), index_no: idx.trim() } });
     setBusy(false);
+    if (error || !data?.ok) return setMsg(data?.error || 'Could not run the analysis. You were not charged. Try again.');
+    setRes(data);
+    setLim(40);
+    setSure(false);
     reload();
     loadSaved();
   }
-  const openSaved = (r) => { setSum(r.summary); setProgs((r.courses || []).map((c, i) => ({ id: i, ...c }))); setLim(40); window.scrollTo(0, 0); };
   const download = (summary, courses, when) => saveFile('Tribridge-course-analysis.html', reportHtml(me, summary, courses, when)).catch(() => setMsg('Could not save the file. Try again.'));
+  const progs = res ? res.courses.map((c, i) => ({ id: i, ...c })) : null;
   const list = (progs || [])
     .filter((p) => (flt === 'likely' ? p.diff >= 0 : p.diff >= -2 && p.diff < 0))
     .filter((p) => (p.programme + ' ' + p.institution).toLowerCase().includes(q.toLowerCase()))
-    .sort((x, y) => (order === 'best' ? Number(y.cutoff) - Number(x.cutoff) : y.diff - x.diff));
+    .sort((x, y) => (order === 'best' ? y.cutoff - x.cutoff : y.diff - x.diff));
+  const mmss = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
   return (
     <>
       <p className="eyebrow">Course analyzer</p><h1>Cluster points and your courses</h1>
       {msg && <p className="toast">{msg}</p>}
-      {!can && (
+      {!can && !res && (
         <div className="card paid">
           <div className="row"><h3>Unlock one analysis</h3><span className="px">KES {svc?.price_full || 100}</span></div>
-          <p className="note">{svc?.description} One payment gives you one analysis. Your results are saved and you can download them. To run it again, pay again.</p>
+          <p className="note">{svc?.description} One payment gives one analysis for one student and one KCSE index number. You must download your results within 30 minutes, or they disappear and you pay again.</p>
           <CalcPay price={svc?.price_full || 100} instr={instr} claims={claims} onSent={loadClaims} />
         </div>
       )}
-      {can && (
+      {can && !res && (
         <>
           <p className="muted">Add every subject you sat and its grade. Tick the four subjects for the cluster. We use your best seven for the total.</p>
-          <p className="note">{isAdmin ? 'Admin: unlimited use.' : active ? 'Your analysis session is open for a short time. You can correct a grade and run it again.' : `Analyses left: ${credits}`}</p>
+          <p className="note">{isAdmin ? 'Admin: unlimited use.' : `Analyses left: ${credits}. One payment gives one analysis for one KCSE index number.`}</p>
           {rows.map((r, i) => (
             <div className="grade" key={i}>
               <select value={r.name} onChange={(e) => upd(i, { name: e.target.value })}>
@@ -544,20 +544,23 @@ function Analyzer({ me, reload, services, onApply }) {
             {C ? <h3>Cluster points about {C.toFixed(3)} of 48 (estimate)</h3> : <p className="muted">Add at least 7 subjects and tick exactly four for the cluster.</p>}
             <p className="note">KUCCPS works out the official weighted points from KNEC data. Check yours in the KUCCPS portal.</p>
           </div>
-          <button className="cta full" disabled={busy} onClick={find}>{busy ? 'Working...' : 'Find my courses'}</button>
+          <input placeholder="Your KCSE index number, for example 12345678/2025" value={idx} onChange={(e) => setIdx(e.target.value)} />
+          <label className="agree"><input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} /> I checked my grades and index number. I understand this runs only once, and my results disappear 30 minutes after I run it, so I must download them.</label>
+          <button className="cta full" disabled={busy || !sure} onClick={find}>{busy ? 'Working...' : 'Find my courses'}</button>
         </>
       )}
-      {progs && (
+      {res && (
         <>
           <h2>Your results</h2>
-          <button className="ghost" onClick={() => download(sum, progs, new Date())}>Download my results</button>
+          <p className="toast">Download now. Your results disappear in {mmss}. After that you must pay again to see them.</p>
+          <button className="ghost" onClick={() => download(res.summary, res.courses, new Date())}>Download my results</button>
           <div className="seg">
             {[['likely', 'Likely'], ['near', 'Borderline']].map(([k, l]) => <button key={k} className={flt === k ? 'on' : ''} onClick={() => setFlt(k)}>{l}</button>)}
             {[['best', 'Best first'], ['safe', 'Safest first']].map(([k, l]) => <button key={k} className={order === k ? 'on' : ''} onClick={() => setOrder(k)}>{l}</button>)}
           </div>
           <input placeholder="Search a course or university" value={q} onChange={(e) => setQ(e.target.value)} />
           <p className="note">{list.length} courses. Tick the ones you want to apply for.</p>
-          {progs.length === 0 && <p className="muted">The course list is being updated. Check back soon.</p>}
+          {res.courses.length === 0 && <p className="muted">No matching courses found. The course list may not be loaded yet.</p>}
           {list.slice(0, lim).map((p) => {
             const k = `${p.programme}, ${p.institution}`;
             return (
@@ -569,15 +572,16 @@ function Analyzer({ me, reload, services, onApply }) {
           })}
           {list.length > lim && <button className="link" onClick={() => setLim(lim + 40)}>Show more</button>}
           {sel.length > 0 && kuccps && <button className="cta full" onClick={() => onApply(kuccps, { choices: sel.join('; ') })}>Use {sel.length} selected courses in my KUCCPS application</button>}
+          <p className="toast">Remember: download your results before the time runs out. They disappear in {mmss}. After that you must pay again.</p>
         </>
       )}
-      {saved.length > 0 && (
+      {saved.length > 0 && !res && (
         <>
-          <h2>My saved results</h2>
+          <h2>Results still available</h2>
           {saved.map((r) => (
             <div className="card" key={r.id}>
-              <p><b>{new Date(r.created_at).toLocaleDateString('en-GB')}</b> <span className="note">{(r.courses || []).length} courses, cluster {r.summary?.cluster || 'n/a'}</span></p>
-              <button className="link" onClick={() => openSaved(r)}>Open</button> <button className="link" onClick={() => download(r.summary, r.courses || [], r.created_at)}>Download</button>
+              <p><b>Index {r.summary?.index_no || 'n/a'}</b> <span className="note">{(r.courses || []).length} courses, disappears in about {Math.max(1, Math.round((new Date(r.expires_at).getTime() - Date.now()) / 60000))} minutes</span></p>
+              <button className="link" onClick={() => setRes({ summary: r.summary, courses: r.courses || [], expires_at: r.expires_at })}>Open</button> <button className="link" onClick={() => download(r.summary, r.courses || [], r.created_at)}>Download</button>
             </div>
           ))}
         </>
@@ -713,6 +717,7 @@ function Auth({ go }) {
         </>
       )}
       {msg && <p className="err">{msg}</p>}
+      <p className="warn"><b>Important:</b> we cannot recover your email or password. Remember them or write them down.</p>
       <button className="cta full">{mode === 'in' ? 'Log in' : 'Create account'}</button>
       <button type="button" className="link" onClick={() => { setMode(mode === 'in' ? 'up' : 'in'); setMsg(''); }}>{mode === 'in' ? 'New here? Create an account' : 'Have an account? Log in'}</button>
     </form>
@@ -724,7 +729,7 @@ function Drawer({ me, page, admin, go, onClose }) {
   useEffect(() => {
     if (me) sb.from('requests').select('id, status, created_at, services(title)').eq('user_id', me.id).order('created_at').then(({ data }) => setRs(data || []));
   }, []);
-  const items = [['home', 'Home', 'home'], ['guide', 'Guide', 'book'], ['services', 'Services', 'grid'], ...(me ? [['requests', 'My requests', 'list']] : []), ['analyzer', 'Course analyzer', 'calc'], ...(me ? [['news', 'Announcements', 'bell'], ['feedback', 'Feedback', 'chat'], ['account', 'My account', 'user']] : []), ['privacy', 'Privacy policy', 'shield'], ...(admin ? [['admin', me.role === 'admin' ? 'Admin' : 'Staff panel', 'id']] : [])];
+  const items = [['home', 'Home', 'home'], ['guide', 'Guide', 'book'], ['services', 'Services', 'grid'], ...(me ? [['requests', 'My requests', 'list']] : []), ['analyzer', 'Course analyzer', 'calc'], ...(me ? [['inbox', 'Messages', 'bell'], ['news', 'Announcements', 'bell'], ['feedback', 'Feedback', 'chat'], ['account', 'My account', 'user']] : []), ['privacy', 'Privacy policy', 'shield'], ...(admin ? [['admin', me.role === 'admin' ? 'Admin' : 'Staff panel', 'id']] : [])];
   return (
     <>
       <div className="scrim" onClick={onClose} />
@@ -886,6 +891,68 @@ function Team() {
   );
 }
 
+function BotPanel() {
+  const [h, setH] = useState(null);
+  const [log, setLog] = useState([]);
+  const [sms, setSms] = useState([]);
+  const [txt, setTxt] = useState('');
+  const [msg, setMsg] = useState('');
+  const [steps, setSteps] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    const r = await sb.rpc('bot_health');
+    setH(r.error ? { error: r.error.message } : r.data);
+    const l = await sb.from('sms_log').select('*').order('created_at', { ascending: false }).limit(12);
+    setLog(l.data || []);
+    const m = await sb.from('mpesa_messages').select('*').order('created_at', { ascending: false }).limit(8);
+    setSms(m.data || []);
+  };
+  useEffect(() => { load(); }, []);
+  async function setup() {
+    setBusy(true);
+    setSteps(null);
+    const { data, error } = await sb.functions.invoke('setup-db');
+    setSteps(error ? [{ name: 'Setup function', ok: false, error: 'Not reachable. Run Deploy functions in GitHub first. ' + error.message }] : data?.steps || [{ name: 'Setup', ok: false, error: data?.error || 'Unknown error' }]);
+    setBusy(false);
+    load();
+  }
+  async function paste() {
+    if (!txt.trim()) return;
+    const { data, error } = await sb.rpc('admin_paste_sms', { txt });
+    setMsg(error ? error.message : data);
+    if (!error) { setTxt(''); load(); }
+  }
+  async function test() {
+    const { error } = await sb.rpc('bot_test');
+    setMsg(error ? error.message : 'Sent. Tap the bell icon at the top to read it.');
+  }
+  return (
+    <>
+      <div className="card paid">
+        <h3>Bot setup</h3>
+        <p className="note">Tap once to install or repair everything the bots need. It is safe to tap again.</p>
+        <button className="cta sm" disabled={busy} onClick={setup}>{busy ? 'Working...' : 'Run setup'}</button>
+        {steps && steps.map((s) => <p key={s.name} className={s.ok ? 'note' : 'err'}>{s.ok ? 'OK' : 'FAILED'}: {s.name}{s.error ? ' - ' + s.error : ''}</p>)}
+      </div>
+      <h2>Bot check</h2>
+      {!h && <p className="muted">Checking...</p>}
+      {h?.error && <p className="err">The check is not installed yet. Tap Run setup. ({h.error})</p>}
+      {h && !h.error && Object.entries(h).map(([k, v]) => <p key={k} className={v === false ? 'err' : 'note'}>{typeof v === 'boolean' ? (v ? 'OK' : 'MISSING') : String(v)}: {k}</p>)}
+      <button className="ghost" onClick={test}>Send myself a test message</button>
+      <h2>Paste an M-Pesa message</h2>
+      <p className="note">If the forwarder app misses a message, paste it here. The bot reads the code and amount and checks them against waiting payments.</p>
+      <textarea value={txt} onChange={(e) => setTxt(e.target.value)} placeholder="Paste the full M-Pesa message" />
+      <button className="cta sm" onClick={paste}>Check this message</button>
+      {msg && <p className="toast">{msg}</p>}
+      <h2>Messages received from your phone</h2>
+      {log.length === 0 && <p className="muted">Nothing yet. If you got paid and nothing shows here, the forwarder app is not reaching the server.</p>}
+      {log.map((l) => <p key={l.id} className="note">{new Date(l.created_at).toLocaleString('en-GB')}, {l.sender || 'unknown'}: {l.outcome}</p>)}
+      <h2>Payments the bot has read</h2>
+      {sms.map((m) => <p key={m.code} className="note">{m.code}, KES {m.amount}, {new Date(m.created_at).toLocaleString('en-GB')}</p>)}
+    </>
+  );
+}
+
 function Admin({ services, reload, role }) {
   const isAdmin = role === 'admin';
   const [tab, setTab] = useState('requests');
@@ -938,7 +1005,7 @@ function Admin({ services, reload, role }) {
     if (window.confirm('Delete this announcement?')) { await sb.from('announcements').delete().eq('id', id); load(); }
   }
   const shown = reqs.filter((r) => flt === 'all' || (flt === 'pay' ? pays.some((p) => p.request_id === r.id && p.status === 'pending') : r.status === flt));
-  const tabsList = isAdmin ? [['requests', 'Requests'], ['calc', 'Analyzer'], ['courses', 'Courses'], ['news', 'Announcements'], ['prices', 'Prices'], ['staff', 'Staff'], ['fb', 'Feedback']] : [['requests', 'Requests']];
+  const tabsList = isAdmin ? [['requests', 'Requests'], ['calc', 'Analyzer'], ['courses', 'Courses'], ['news', 'Announcements'], ['prices', 'Prices'], ['staff', 'Staff'], ['bot', 'Bot'], ['fb', 'Feedback']] : [['requests', 'Requests']];
   return (
     <>
       <p className="eyebrow">{isAdmin ? 'Admin' : 'Staff'}</p><h1>{isAdmin ? 'Control room' : 'Staff panel'}</h1>
@@ -1014,9 +1081,27 @@ function Admin({ services, reload, role }) {
         </>
       )}
       {tab === 'staff' && isAdmin && <Team />}
+      {tab === 'bot' && isAdmin && <BotPanel />}
       {tab === 'courses' && <Courses />}
       {tab === 'prices' && (<><PayInfo /><Prices services={services} reload={reload} /></>)}
       {tab === 'fb' && fb.map((x) => <div className="card" key={x.id}><p>{x.message}</p><p className="note">@{x.profiles?.username}</p></div>)}
+    </>
+  );
+}
+
+function Inbox({ me, onRead }) {
+  const [ms, setMs] = useState([]);
+  useEffect(() => {
+    sb.from('inbox').select('*').eq('user_id', me.id).order('created_at', { ascending: false }).limit(50).then(({ data }) => setMs(data || []));
+    sb.from('inbox').update({ read: true }).eq('user_id', me.id).eq('read', false).then(() => onRead());
+  }, []);
+  return (
+    <>
+      <p className="eyebrow">Messages</p><h1>From Tribridge Bot</h1>
+      {ms.length === 0 && <p className="muted">No messages yet.</p>}
+      {ms.map((m) => (
+        <div className="card" key={m.id}><p>{m.body}</p><p className="note">{new Date(m.created_at).toLocaleString('en-GB')}</p></div>
+      ))}
     </>
   );
 }
@@ -1061,6 +1146,7 @@ export default function App() {
   const [pre, setPre] = useState(null);
   const [push, setPush] = useState(PUSH ? 'checking' : 'off');
   const [banner, setBanner] = useState('');
+  const [unread, setUnread] = useState(0);
   const uid = session?.user?.id;
   const go = (p) => { setPage(p); setMenu(false); setApplying(null); window.scrollTo(0, 0); };
   const loadMe = () => sb.from('profiles').select('*').eq('id', uid).single().then(({ data }) => setMe(data));
@@ -1111,10 +1197,18 @@ export default function App() {
     return () => window.removeEventListener('online', run);
   }, [uid]);
 
+  useEffect(() => {
+    if (!uid) { setUnread(0); return; }
+    const count = () => sb.from('inbox').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('read', false).then(({ count: c }) => setUnread(c || 0));
+    count();
+    const ch = sb.channel('inbox' + uid).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'inbox', filter: 'user_id=eq.' + uid }, (p) => { count(); setBanner(String(p.new?.body || '').slice(0, 140)); }).subscribe();
+    return () => { sb.removeChannel(ch); };
+  }, [uid]);
+
   if (session === undefined) return <div className="boot">Tribridge Cyber</div>;
   if (uid && !me) return <div className="boot">Loading</div>;
   const admin = ['admin', 'staff'].includes(me?.role) && isApp;
-  const gated = ['requests', 'account', 'news', 'feedback'].includes(page) || (page === 'admin' && !admin);
+  const gated = ['requests', 'account', 'news', 'feedback', 'inbox'].includes(page) || (page === 'admin' && !admin);
   const view = !me && gated ? 'auth' : page;
   const onApply = (s, pf) => { if (!me) return go('auth'); setPre(pf || null); setApplying(s); };
   const tabs = [['home', 'Home', 'home'], ['guide', 'Guide', 'book'], ['services', 'Services', 'grid'], [me ? 'requests' : 'auth', 'Requests', 'list'], [me ? 'account' : 'auth', 'Account', 'user']];
@@ -1125,6 +1219,7 @@ export default function App() {
         <button onClick={() => go('home')} aria-label="Home"><Brand /></button>
         <div className="right">
           {!me && <button className="cta sm" onClick={() => go('auth')}><Ic n="login" s={18} /> Sign in / Join</button>}
+          {me && <button className="bellbtn" onClick={() => go('inbox')} aria-label="Messages"><Ic n="bell" s={24} />{unread > 0 && <span className="dot">{unread}</span>}</button>}
           <button onClick={() => setMenu(true)} aria-label="Open menu"><Ic n="menu" s={26} /></button>
         </div>
       </header>
@@ -1135,6 +1230,7 @@ export default function App() {
         {view === 'requests' && me && <Requests me={me} />}
         {view === 'analyzer' && (me ? <Analyzer me={me} reload={loadMe} services={services} onApply={onApply} /> : <Auth go={go} />)}
         {view === 'news' && <News news={news} />}
+        {view === 'inbox' && me && <Inbox me={me} onRead={() => setUnread(0)} />}
         {view === 'feedback' && me && <Feedback me={me} />}
         {view === 'account' && me && <Account me={me} reload={loadMe} go={go} push={push} enablePush={enablePush} />}
         {view === 'privacy' && <Privacy />}

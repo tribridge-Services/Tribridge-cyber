@@ -90,3 +90,6 @@ footer.f{border-top:1px solid var(--line2);margin-top:30px;padding-top:20px}
 .sec{margin:22px 0 2px;color:var(--cy)}
 .thread p.bot{background:#10202b;border:1px dashed var(--line)}
 a.cta{text-decoration:none}
+.warn{border-left:3px solid var(--sand);padding:6px 10px;color:var(--sand);font-size:.9rem;margin:12px 0}
+.bellbtn{position:relative;padding:6px}
+.bellbtn .dot{position:absolute;top:0;right:0;min-width:18px;height:18px;border-radius:9px;background:var(--rose);color:#02222a;font-size:.7rem;font-weight:700;display:grid;place-items:center;padding:0 4px}
