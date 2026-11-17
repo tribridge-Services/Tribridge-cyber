@@ -93,3 +93,10 @@ a.cta{text-decoration:none}
 .warn{border-left:3px solid var(--sand);padding:6px 10px;color:var(--sand);font-size:.9rem;margin:12px 0}
 .bellbtn{position:relative;padding:6px}
 .bellbtn .dot{position:absolute;top:0;right:0;min-width:18px;height:18px;border-radius:9px;background:var(--rose);color:#02222a;font-size:.7rem;font-weight:700;display:grid;place-items:center;padding:0 4px}
+.fab{position:fixed;right:16px;bottom:calc(84px + env(safe-area-inset-bottom));z-index:35;width:56px;height:56px;border-radius:50%;background:var(--cy);color:#02222a;display:grid;place-items:center;box-shadow:0 0 22px #00e5ff55}
+.bub{max-width:86%;margin:8px 0;padding:10px 14px;border-radius:16px;background:#0c2431;white-space:pre-wrap}
+.bub.me{margin-left:auto;background:#0e3a44}
+.bub.team{border:1px solid var(--cy)}
+.bub small{display:block;color:var(--muted);font-size:.72rem;margin-bottom:2px}
+.chatbar{display:flex;gap:8px;align-items:center;margin-top:12px}
+.chatbar input{margin:0}

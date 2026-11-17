@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
@@ -149,6 +149,16 @@ function Footer({ go }) {
   );
 }
 
+function DownloadBtn({ url }) {
+  const [state, setState] = useState('checking');
+  useEffect(() => {
+    fetch(url, { method: 'HEAD' }).then((r) => setState(r.ok ? 'ok' : 'missing')).catch(() => setState('ok'));
+  }, [url]);
+  if (state === 'checking') return <span className="tag">Checking the download...</span>;
+  if (state === 'missing') return <p className="err">The app file is not on the website yet. Put tribridge-cyber.apk in the public folder of the site and redeploy.</p>;
+  return <><a className="cta sm" href={url} download="Tribridge-Cyber.apk">Download the app</a><p className="note">If nothing downloads, open this page in Chrome, not inside WhatsApp or Instagram, and tap the button again. If your phone warns about the file, choose Download anyway.</p></>;
+}
+
 function Home({ go, me }) {
   return (
     <>
@@ -172,7 +182,7 @@ function Home({ go, me }) {
         <div className="card paid">
           <h3>Get the Android app</h3>
           <p className="muted">Faster, and it tells you when your request moves. Download the app, then allow installs from this source when your phone asks.</p>
-          {APK_URL ? <a className="cta sm" href={APK_URL}>Download the app</a> : <span className="tag">Download link coming soon</span>}
+          {APK_URL ? <DownloadBtn url={APK_URL} /> : <span className="tag">Download link coming soon</span>}
         </div>
       )}
       <h2>What is free and what is paid</h2>
@@ -355,14 +365,14 @@ function Files({ uid }) {
   );
 }
 
-function PayBox({ r, price, instr, onSent }) {
+function PayBox({ req, price, instr, onSent }) {
   const [code, setCode] = useState('');
   const [msg, setMsg] = useState('');
   async function send() {
     if (!/^[A-Za-z0-9]{10}$/.test(code.trim())) return setMsg('The M-Pesa code has 10 letters and numbers. Copy it from your M-Pesa SMS.');
-    const { error } = await sb.rpc('submit_payment', { rid: r.id, code });
+    const { error } = await sb.rpc('submit_payment', { rid: req.id, code });
     if (error) return setMsg(error.message.includes('duplicate') ? 'That code was already used.' : 'Could not send. Check the code and try again.');
-    notify({ kind: 'payment', request_id: r.id });
+    notify({ kind: 'payment', request_id: req.id });
     setCode('');
     onSent();
   }
@@ -410,7 +420,7 @@ function Requests({ me }) {
             <div className="row"><h3>{r.services?.title}</h3><Status s={r.status} /></div>
             <p className="note">{r.mode === 'live' ? 'Live help' : 'Done for you'}, applied {ds(r.created_at)}</p>
             {paid ? <p className="toast">Paid. Thank you.</p> : wait ? <p className="toast">Payment sent (code {wait.receipt}). {wait.note || 'Waiting for approval.'}</p> : price ? (
-              <>{bad && <p className="err">Your last payment was not approved. Check the code and try again.</p>}<PayBox r={r} price={price} instr={instr} onSent={load} /></>
+              <>{bad && <p className="err">Your last payment was not approved. Check the code and try again.</p>}<PayBox req={r} price={price} instr={instr} onSent={load} /></>
             ) : <p className="note">We will confirm the fee with you.</p>}
             <Toggle label="Messages"><Thread id={r.id} /></Toggle>
           </div>
@@ -639,6 +649,15 @@ function Account({ me, reload, go, push, enablePush }) {
           </div>
         </>
       )}
+      {!isApp && typeof Notification !== 'undefined' && (
+        <>
+          <h2>Notifications</h2>
+          <div className="card paid">
+            <p>{Notification.permission === 'granted' ? 'Browser notifications are on. You see new updates even when this tab is in the background.' : 'Allow browser notifications to see new updates even when this tab is in the background.'}</p>
+            {Notification.permission !== 'granted' && <button className="cta sm" onClick={() => Notification.requestPermission().then(() => setPm(String(Date.now())))}>Allow browser notifications</button>}
+          </div>
+        </>
+      )}
       <h2>My documents</h2>
       <p className="muted">Upload clear photos or PDFs. Only you and Tribridge Cyber can see them.</p>
       <Files uid={me.id} />
@@ -655,7 +674,7 @@ function Privacy() {
       <p className="eyebrow">Privacy policy</p><h1>How we handle your data</h1>
       <p>Last updated: November 2026. Tribridge Cyber ("we") helps KCSE leavers with applications online. To reach us, send a message in the app under Feedback.</p>
       <h3>What we collect</h3>
-      <p>Your account details (names, username, phone, email), the details you type into forms (for example ID number, birth certificate number, KCSE index number and parent details), documents you upload, your messages with us, and payment confirmations such as M-Pesa receipt numbers. We never ask for your passwords or M-Pesa PIN.</p>
+      <p>Your account details (names, username, phone, email), the details you type into forms (for example ID number, birth certificate number, KCSE index number and parent details), documents you upload, your messages with us and with the Tribridge Bot (our team can read them), and payment confirmations such as M-Pesa receipt numbers. We never ask for your passwords or M-Pesa PIN.</p>
       <h3>Why we use it</h3>
       <p>Only to do the service you ask for, to contact you, to take payment and to send you notifications.</p>
       <h3>Your consent</h3>
@@ -729,7 +748,7 @@ function Drawer({ me, page, admin, go, onClose }) {
   useEffect(() => {
     if (me) sb.from('requests').select('id, status, created_at, services(title)').eq('user_id', me.id).order('created_at').then(({ data }) => setRs(data || []));
   }, []);
-  const items = [['home', 'Home', 'home'], ['guide', 'Guide', 'book'], ['services', 'Services', 'grid'], ...(me ? [['requests', 'My requests', 'list']] : []), ['analyzer', 'Course analyzer', 'calc'], ...(me ? [['inbox', 'Messages', 'bell'], ['news', 'Announcements', 'bell'], ['feedback', 'Feedback', 'chat'], ['account', 'My account', 'user']] : []), ['privacy', 'Privacy policy', 'shield'], ...(admin ? [['admin', me.role === 'admin' ? 'Admin' : 'Staff panel', 'id']] : [])];
+  const items = [['home', 'Home', 'home'], ['guide', 'Guide', 'book'], ['services', 'Services', 'grid'], ...(me ? [['requests', 'My requests', 'list']] : []), ['analyzer', 'Course analyzer', 'calc'], ...(me ? [['bot', 'Ask the bot', 'chat'], ['inbox', 'Messages', 'bell'], ['news', 'Announcements', 'bell'], ['feedback', 'Feedback', 'chat'], ['account', 'My account', 'user']] : []), ['privacy', 'Privacy policy', 'shield'], ...(admin ? [['admin', me.role === 'admin' ? 'Admin' : 'Staff panel', 'id']] : [])];
   return (
     <>
       <div className="scrim" onClick={onClose} />
@@ -891,6 +910,44 @@ function Team() {
   );
 }
 
+function BotChats() {
+  const [rows, setRows] = useState([]);
+  const [reply, setReply] = useState({});
+  const [msg, setMsg] = useState('');
+  const load = () => sb.from('bot_chat').select('*, profiles(full_name, username)').order('created_at', { ascending: false }).limit(150).then(({ data }) => setRows(data || []));
+  useEffect(() => {
+    load();
+    const ch = sb.channel('adminchat').on('postgres_changes', { event: '*', schema: 'public', table: 'bot_chat' }, load).subscribe();
+    return () => { sb.removeChannel(ch); };
+  }, []);
+  const groups = Object.values(rows.reduce((g, r) => { (g[r.user_id] = g[r.user_id] || { id: r.user_id, p: r.profiles, items: [] }).items.push(r); return g; }, {}))
+    .sort((a, b) => Number(b.items.some((x) => x.forwarded)) - Number(a.items.some((x) => x.forwarded)));
+  async function send(g) {
+    const txt = (reply[g.id] || '').trim();
+    if (!txt) return;
+    const { error } = await sb.rpc('admin_reply', { p_user: g.id, txt });
+    if (error) return setMsg(error.message);
+    notify({ kind: 'user', user_id: g.id, title: 'Reply from the Tribridge team', body: txt });
+    setReply({ ...reply, [g.id]: '' });
+    load();
+  }
+  return (
+    <>
+      <p className="note">Everything students ask the bot. Forwarded questions come first. Reply here and the student is notified.</p>
+      {msg && <p className="err">{msg}</p>}
+      {groups.length === 0 && <p className="muted">No chats yet.</p>}
+      {groups.map((g) => (
+        <div className="card" key={g.id}>
+          <h3>{g.p?.full_name} <span className="note">@{g.p?.username}</span></h3>
+          {[...g.items].reverse().slice(-8).map((m) => <p key={m.id} className={m.role === 'user' ? '' : 'muted'}><b>{m.role === 'user' ? 'Student' : m.role === 'admin' ? 'Team' : 'Bot'}:</b> {m.body}{m.forwarded ? ' (forwarded to you)' : ''}</p>)}
+          <input placeholder="Reply to this student" value={reply[g.id] || ''} onChange={(e) => setReply({ ...reply, [g.id]: e.target.value })} />
+          <button className="cta sm" onClick={() => send(g)}>Send reply</button>
+        </div>
+      ))}
+    </>
+  );
+}
+
 function BotPanel() {
   const [h, setH] = useState(null);
   const [log, setLog] = useState([]);
@@ -988,8 +1045,9 @@ function Admin({ services, reload, role }) {
     if (!b.trim()) return;
     setMsg('Polishing...');
     const { data, error } = await sb.functions.invoke('ai-refine', { body: { title: t, body: b } });
-    if (error || !data?.text) setMsg('AI polish is not set up yet.');
-    else { setB(data.text); setMsg('Polished. Check it, then publish.'); }
+    if (error || !data?.ok) { setMsg('AI polish failed: ' + (data?.error || error?.message || 'Run Deploy functions in GitHub and add GEMINI_API_KEY to Supabase secrets.')); return; }
+    setB(data.text);
+    setMsg('Polished. Check it, then publish.');
   }
   async function publish() {
     if (!t.trim() || !b.trim()) return;
@@ -1005,7 +1063,7 @@ function Admin({ services, reload, role }) {
     if (window.confirm('Delete this announcement?')) { await sb.from('announcements').delete().eq('id', id); load(); }
   }
   const shown = reqs.filter((r) => flt === 'all' || (flt === 'pay' ? pays.some((p) => p.request_id === r.id && p.status === 'pending') : r.status === flt));
-  const tabsList = isAdmin ? [['requests', 'Requests'], ['calc', 'Analyzer'], ['courses', 'Courses'], ['news', 'Announcements'], ['prices', 'Prices'], ['staff', 'Staff'], ['bot', 'Bot'], ['fb', 'Feedback']] : [['requests', 'Requests']];
+  const tabsList = isAdmin ? [['requests', 'Requests'], ['calc', 'Analyzer'], ['courses', 'Courses'], ['news', 'Announcements'], ['prices', 'Prices'], ['staff', 'Staff'], ['bot', 'Bot'], ['fwds', 'Forwarded questions'], ['fb', 'Feedback']] : [['requests', 'Requests']];
   return (
     <>
       <p className="eyebrow">{isAdmin ? 'Admin' : 'Staff'}</p><h1>{isAdmin ? 'Control room' : 'Staff panel'}</h1>
@@ -1082,9 +1140,61 @@ function Admin({ services, reload, role }) {
       )}
       {tab === 'staff' && isAdmin && <Team />}
       {tab === 'bot' && isAdmin && <BotPanel />}
+      {tab === 'fwds' && isAdmin && <BotChats />}
       {tab === 'courses' && <Courses />}
       {tab === 'prices' && (<><PayInfo /><Prices services={services} reload={reload} /></>)}
       {tab === 'fb' && fb.map((x) => <div className="card" key={x.id}><p>{x.message}</p><p className="note">@{x.profiles?.username}</p></div>)}
+    </>
+  );
+}
+
+function BotChat({ me }) {
+  const [ms, setMs] = useState([]);
+  const [t, setT] = useState('');
+  const [busy, setBusy] = useState(false);
+  const end = useRef(null);
+  const load = () => sb.from('bot_chat').select('*').eq('user_id', me.id).order('created_at').limit(200).then(({ data }) => setMs(data || []));
+  useEffect(() => {
+    load();
+    const ch = sb.channel('botchat' + me.id).on('postgres_changes', { event: '*', schema: 'public', table: 'bot_chat', filter: 'user_id=eq.' + me.id }, load).subscribe();
+    return () => { sb.removeChannel(ch); };
+  }, []);
+  useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth' }); }, [ms.length, busy]);
+  async function send(text) {
+    const q = (text ?? t).trim();
+    if (!q || busy) return;
+    setT('');
+    setBusy(true);
+    setMs((m) => [...m, { id: 'tmp' + Date.now(), role: 'user', body: q }]);
+    const { data, error } = await sb.functions.invoke('bot-chat', { body: { message: q } });
+    setBusy(false);
+    if (error || !data?.ok) setMs((m) => [...m, { id: 'err' + Date.now(), role: 'bot', body: data?.error || 'I could not reach the server. Check your internet and try again.' }]);
+    else load();
+  }
+  async function forward(m) {
+    const { error } = await sb.rpc('forward_to_admin', { msg_id: m.id });
+    if (!error) notify({ kind: 'forward' });
+    load();
+  }
+  const ideas = ['How do I pay?', 'What does KUCCPS help cost?', 'How does the course analyzer work?', 'I forgot my password'];
+  return (
+    <>
+      <p className="eyebrow">Tribridge Bot</p><h1>Ask me anything</h1>
+      <p className="note">I answer questions about the app, our services, prices and the steps after KCSE. Our team can read this chat to improve answers and help you. Please do not type passwords, PINs or one-time codes here.</p>
+      {ms.map((m) => (
+        <div key={m.id} className={'bub' + (m.role === 'user' ? ' me' : m.role === 'admin' ? ' team' : '')}>
+          {m.role !== 'user' && <small>{m.role === 'admin' ? 'Tribridge team' : 'Tribridge Bot'}</small>}
+          {m.body}
+          {m.can_forward && !m.forwarded && <div><button className="cta sm" onClick={() => forward(m)}>Forward to the Tribridge team</button></div>}
+        </div>
+      ))}
+      {busy && <div className="bub"><small>Tribridge Bot</small>Typing...</div>}
+      {ms.length <= 2 && <div className="seg">{ideas.map((i) => <button key={i} onClick={() => send(i)}>{i}</button>)}</div>}
+      <div className="chatbar">
+        <input placeholder="Type your question" value={t} onChange={(e) => setT(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(); }} />
+        <button className="cta sm" disabled={busy} onClick={() => send()}>Send</button>
+      </div>
+      <div ref={end} />
     </>
   );
 }
@@ -1201,20 +1311,31 @@ export default function App() {
     if (!uid) { setUnread(0); return; }
     const count = () => sb.from('inbox').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('read', false).then(({ count: c }) => setUnread(c || 0));
     count();
-    const ch = sb.channel('inbox' + uid).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'inbox', filter: 'user_id=eq.' + uid }, (p) => { count(); setBanner(String(p.new?.body || '').slice(0, 140)); }).subscribe();
+    const ch = sb.channel('inbox' + uid).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'inbox', filter: 'user_id=eq.' + uid }, (p) => { count(); setBanner([p.new?.title, p.new?.body].filter(Boolean).join(': ').slice(0, 160)); if (!isApp && typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.hidden) new Notification(p.new?.title || 'Tribridge Cyber', { body: String(p.new?.body || '').slice(0, 140) }); }).subscribe();
     return () => { sb.removeChannel(ch); };
+  }, [uid]);
+
+  useEffect(() => {
+    if (!banner) return;
+    const id = setTimeout(() => setBanner(''), 8000);
+    return () => clearTimeout(id);
+  }, [banner]);
+
+  useEffect(() => {
+    if (!uid) return;
+    sb.rpc('remind_missed').then(({ data }) => { if (data > 0) setBanner(`Welcome back! You missed ${data} update${data > 1 ? 's' : ''}. Tap to read.`); });
   }, [uid]);
 
   if (session === undefined) return <div className="boot">Tribridge Cyber</div>;
   if (uid && !me) return <div className="boot">Loading</div>;
   const admin = ['admin', 'staff'].includes(me?.role) && isApp;
-  const gated = ['requests', 'account', 'news', 'feedback', 'inbox'].includes(page) || (page === 'admin' && !admin);
+  const gated = ['requests', 'account', 'news', 'feedback', 'inbox', 'bot'].includes(page) || (page === 'admin' && !admin);
   const view = !me && gated ? 'auth' : page;
   const onApply = (s, pf) => { if (!me) return go('auth'); setPre(pf || null); setApplying(s); };
   const tabs = [['home', 'Home', 'home'], ['guide', 'Guide', 'book'], ['services', 'Services', 'grid'], [me ? 'requests' : 'auth', 'Requests', 'list'], [me ? 'account' : 'auth', 'Account', 'user']];
   return (
     <>
-      {banner && <div className="toast bannerfix" onClick={() => setBanner('')}>{banner}</div>}
+      {banner && <div className="toast bannerfix" onClick={() => { setBanner(''); go('inbox'); }}>{banner}</div>}
       <header className="top">
         <button onClick={() => go('home')} aria-label="Home"><Brand /></button>
         <div className="right">
@@ -1231,12 +1352,14 @@ export default function App() {
         {view === 'analyzer' && (me ? <Analyzer me={me} reload={loadMe} services={services} onApply={onApply} /> : <Auth go={go} />)}
         {view === 'news' && <News news={news} />}
         {view === 'inbox' && me && <Inbox me={me} onRead={() => setUnread(0)} />}
+        {view === 'bot' && me && <BotChat me={me} />}
         {view === 'feedback' && me && <Feedback me={me} />}
         {view === 'account' && me && <Account me={me} reload={loadMe} go={go} push={push} enablePush={enablePush} />}
         {view === 'privacy' && <Privacy />}
         {view === 'auth' && <Auth go={go} />}
         {view === 'admin' && admin && <Admin services={services} reload={loadServices} role={me.role} />}
       </main>
+      {me && page !== 'bot' && <button className="fab" onClick={() => go('bot')} aria-label="Ask the Tribridge Bot"><Ic n="chat" s={26} /></button>}
       <nav className="tabs">
         {tabs.map(([k, l, ic]) => (<button key={l} className={page === k ? 'on' : ''} onClick={() => go(k)}><Ic n={ic} />{l}</button>))}
       </nav>

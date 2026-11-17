@@ -36,8 +36,10 @@ Deno.serve(async (req) => {
       body = 'If you see this, notifications work on this phone.';
       ids = [user.id];
     } else if (input.kind === 'announcement' && me?.role === 'admin') {
-      title = String(input.title ?? 'Tribridge Cyber');
+      title = 'New from Tribridge: ' + String(input.title ?? 'Update');
       body = String(input.body ?? '').slice(0, 180);
+      const { data: all }: any = await admin.from('profiles').select('id').in('role', ['student', 'staff', 'admin']);
+      ids = (all ?? []).map((x: any) => x.id);
     } else if (input.kind === 'request' || input.kind === 'payment') {
       const { data: r }: any = await admin.from('requests').select('user_id, services(title)').eq('id', input.request_id).single();
       if (!r || r.user_id !== user.id) return reply({ ok: false, error: 'Not allowed.' });
@@ -48,6 +50,14 @@ Deno.serve(async (req) => {
       title = 'Payment to approve';
       body = 'Course analyzer';
       ids = await admins();
+    } else if (input.kind === 'forward') {
+      title = 'Question forwarded';
+      body = 'A student forwarded a question from the bot chat.';
+      ids = await admins();
+    } else if (input.kind === 'user' && (me?.role === 'admin' || me?.role === 'staff')) {
+      title = String(input.title ?? 'Tribridge Cyber');
+      body = String(input.body ?? '').slice(0, 180);
+      ids = [String(input.user_id)];
     } else return reply({ ok: false, error: 'Not allowed.' });
     let q: any = admin.from('push_tokens').select('token');
     if (ids) q = q.in('user_id', ids);

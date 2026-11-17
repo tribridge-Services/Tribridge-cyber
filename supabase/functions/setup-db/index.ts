@@ -382,10 +382,202 @@ update public.services set fields = '[["_h1","About you","h"],["surname","Surnam
 update public.services set fields = '[["_h1","About you","h"],["surname","Surname","text"],["first_name","First name","text"],["other_names","Other names (optional)","text"],["id_no","National ID number (or KCSE index number if you do not have an ID yet)","text"],["dob","Date of birth","date"],["gender","Gender","select",["Male","Female"]],["phone","Phone number registered in YOUR name","tel"],["email","Email address","email"],["_h2","Your exams","h"],["kcse_index","KCSE index number","text"],["kcse_year","KCSE year","text"],["kcpe_index","KCPE index number","text"],["kcpe_year","KCPE year","text"],["_h3","Your institution","h"],["institution","University or college","text"],["course","Course","text"],["adm_no","Admission number (optional)","text"],["_h4","Your parents or guardians","h"],["father_name","Father full name (write deceased if he has died)","text"],["father_id","Father ID number (optional if deceased)","text"],["father_phone","Father phone (optional if deceased)","tel"],["mother_name","Mother full name (write deceased if she has died)","text"],["mother_id","Mother ID number (optional if deceased)","text"],["mother_phone","Mother phone (optional if deceased)","tel"],["_h5","Two guarantors (they may be your parents)","h"],["g1_name","Guarantor 1 full name","text"],["g1_id","Guarantor 1 ID number","text"],["g1_phone","Guarantor 1 phone","tel"],["g2_name","Guarantor 2 full name","text"],["g2_id","Guarantor 2 ID number","text"],["g2_phone","Guarantor 2 phone","tel"],["_h6","Where your money is paid","h"],["payout_type","Payment method","select",["M-Pesa","Bank"]],["payout","M-Pesa number, or bank name and account number (must be in your name)","text"],["sponsor","Did a school or sponsor support you? Give details (optional)","textarea"],["_i1","Upload under My account, My documents: ID or Maisha Card (both sides), passport photo, admission letter, birth certificate if you are under 18, and a death certificate if a parent has died.","info"]]'::jsonb where id = 'hef';
 insert into public.services (id, title, description, free, soon, sort, price_full, fields) values ('analyzer', 'Course analyzer and cluster points', 'Get your cluster points and a list of courses and universities you qualify for.', false, false, 10, 100, '[]'::jsonb) on conflict (id) do update set soon = false;
 ` },
+  { name: '14 Bot chat and reminders', sql: `
+create table if not exists public.bot_chats (id bigint generated always as identity primary key, user_id uuid not null references public.profiles(id) on delete cascade, direction text not null check (direction in ('in','out')), body text not null, created_at timestamptz not null default now(), forwarded boolean not null default false);
+create table if not exists public.bot_forwards (id uuid primary key default gen_random_uuid(), user_id uuid not null references public.profiles(id) on delete cascade, question text not null, created_at timestamptz not null default now(), answered boolean not null default false, reply text);
+alter table public.bot_chats enable row level security;
+alter table public.bot_forwards enable row level security;
+alter table public.inbox add column if not exists notified boolean not null default false;
+drop policy if exists "bot chats own" on public.bot_chats;
+create policy "bot chats own" on public.bot_chats for select using (user_id = auth.uid() or public.is_admin());
+drop policy if exists "bot forwards admin" on public.bot_forwards;
+create policy "bot forwards admin" on public.bot_forwards for select using (user_id = auth.uid() or public.is_admin());
+create or replace function public.forward_to_admin(q text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.bot_forwards (user_id, question) values (auth.uid(), left(q, 500));
+  update public.bot_chats set forwarded = true where id = (select max(id) from public.bot_chats where user_id = auth.uid() and direction = 'in');
+end $$;
+grant execute on function public.forward_to_admin(text) to authenticated;
+create or replace function public.admin_reply(fid uuid, txt text) returns void
+language plpgsql security definer set search_path = public as $$
+declare uid uuid;
+begin
+  if not public.is_admin() then raise exception 'Admins only'; end if;
+  update public.bot_forwards set answered = true, reply = txt where id = fid returning user_id into uid;
+  insert into public.bot_chats (user_id, direction, body) values (uid, 'out', txt);
+  insert into public.inbox (user_id, body) values (uid, 'Admin replied: ' || txt);
+end $$;
+grant execute on function public.admin_reply(uuid, text) to authenticated;
+do $$ declare t text; begin
+  foreach t in array array['bot_chats','bot_forwards'] loop
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
+end $$;
+create or replace function public.bot_on_announcement() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.inbox (user_id, body) select p.id, 'New announcement: ' || new.title || '. ' || left(new.body, 120) from public.profiles p where p.role in ('student','staff');
+  return new;
+end $$;
+drop trigger if exists announcements_bot on public.announcements;
+create trigger announcements_bot after insert on public.announcements for each row execute function public.bot_on_announcement();
+create or replace function public.bot_remind() returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.inbox (user_id, body)
+  select i.user_id, 'Reminder: you have ' || count(*) || ' unread message(s) from Tribridge. Open the bell to read them.'
+  from public.inbox i where i.read = false and i.created_at < now() - interval '1 day' and i.notified = false
+  group by i.user_id;
+  update public.inbox set notified = true where read = false and created_at < now() - interval '1 day';
+end $$;
+` },
   { name: '13 Welcome for everyone', sql: `
 insert into public.inbox (user_id, body)
 select p.id, ${NAMES.replaceAll('FULL', 'p.full_name')} from public.profiles p
 where not exists (select 1 from public.inbox i where i.user_id = p.id);
+` },
+  { name: '14 Bot chat and alerts', sql: `
+alter table public.inbox add column if not exists kind text;
+alter table public.inbox add column if not exists title text;
+create table if not exists public.bot_chat (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  role text not null check (role in ('user','bot','admin')),
+  body text not null,
+  can_forward boolean not null default false,
+  forwarded boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists bot_chat_user_idx on public.bot_chat (user_id, created_at);
+alter table public.bot_chat enable row level security;
+drop policy if exists "chat own read" on public.bot_chat;
+create policy "chat own read" on public.bot_chat for select using (user_id = auth.uid() or public.is_admin());
+create or replace function public.bot_tell(uid uuid, txt text) returns void
+language sql security definer set search_path = public as $$
+  insert into public.inbox (user_id, body, kind, title) values (uid, txt, 'bot', 'Tribridge Bot');
+$$;
+revoke all on function public.bot_tell(uuid, text) from public, anon, authenticated;
+create or replace function public.bot_welcome() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  perform public.bot_tell(new.id, ${NAMES.replaceAll('FULL', 'new.full_name')});
+  insert into public.bot_chat (user_id, role, body) values (new.id, 'bot', 'Hi! I am the Tribridge Bot. Ask me anything about the app, our services, prices, payments or the steps after KCSE. If I cannot answer, I can forward your question to the Tribridge team.');
+  return new;
+end $$;
+create or replace function public.announce_broadcast() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.inbox (user_id, kind, title, body) select p.id, 'announcement', new.title, left(new.body, 200) from public.profiles p;
+  return new;
+end $$;
+create or replace trigger announcements_broadcast after insert on public.announcements
+for each row execute function public.announce_broadcast();
+create or replace function public.forward_to_admin(msg_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare q text; nm text; a record;
+begin
+  select body into q from public.bot_chat where user_id = auth.uid() and role = 'user' and created_at <= (select created_at from public.bot_chat where id = msg_id) order by created_at desc limit 1;
+  update public.bot_chat set forwarded = true, can_forward = false where id = msg_id and user_id = auth.uid();
+  insert into public.bot_chat (user_id, role, body) values (auth.uid(), 'bot', 'I forwarded your question to the Tribridge team. They will reply here and you will get a notification.');
+  select full_name into nm from public.profiles where id = auth.uid();
+  for a in select id from public.profiles where role = 'admin' loop
+    insert into public.inbox (user_id, kind, title, body) values (a.id, 'forward', 'Question forwarded', coalesce(nm, 'A student') || ' asks: ' || coalesce(q, '(no text)'));
+  end loop;
+end $$;
+grant execute on function public.forward_to_admin(uuid) to authenticated;
+create or replace function public.admin_reply(p_user uuid, txt text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not (public.is_admin() or public.is_staff()) then raise exception 'Team only'; end if;
+  insert into public.bot_chat (user_id, role, body) values (p_user, 'admin', txt);
+  insert into public.inbox (user_id, kind, title, body) values (p_user, 'chat', 'Reply from the Tribridge team', left(txt, 160));
+end $$;
+grant execute on function public.admin_reply(uuid, text) to authenticated;
+create or replace function public.remind_missed() returns int
+language plpgsql security definer set search_path = public as $$
+declare n int; last_rem timestamptz; msg text;
+begin
+  select count(*) into n from public.inbox where user_id = auth.uid() and read = false and kind is distinct from 'reminder' and created_at < now() - interval '10 minutes';
+  if n = 0 then return 0; end if;
+  select max(created_at) into last_rem from public.inbox where user_id = auth.uid() and kind = 'reminder';
+  if last_rem is not null and last_rem > now() - interval '6 hours' then return n; end if;
+  msg := 'Welcome back! You missed ' || n::text || ' update' || case when n > 1 then 's' else '' end || ' while you were away. Tap the bell to read ' || case when n > 1 then 'them' else 'it' end || '.';
+  insert into public.inbox (user_id, kind, title, body, read) values (auth.uid(), 'reminder', 'You missed updates', msg, true);
+  insert into public.bot_chat (user_id, role, body) values (auth.uid(), 'bot', msg);
+  return n;
+end $$;
+grant execute on function public.remind_missed() to authenticated;
+do $$
+declare t text;
+begin
+  foreach t in array array['inbox','bot_chat'] loop
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
+end $$;
+insert into public.bot_chat (user_id, role, body)
+select p.id, 'bot', 'Hi! I am the Tribridge Bot. Ask me anything about the app, our services, prices, payments or the steps after KCSE. If I cannot answer, I can forward your question to the Tribridge team.'
+from public.profiles p where not exists (select 1 from public.bot_chat c where c.user_id = p.id);
+create or replace function public.bot_health() returns jsonb
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Admins only'; end if;
+  return jsonb_build_object(
+    'Payment checker', to_regprocedure('public.match_payment(text)') is not null,
+    'SMS receiver', to_regprocedure('public.ingest_sms(text,numeric,text,text)') is not null,
+    'Pay button', to_regprocedure('public.submit_payment(uuid,text)') is not null,
+    'Welcome for new students', exists (select 1 from pg_trigger where tgname = 'profiles_welcome' and not tgisinternal),
+    'Welcome for new requests', exists (select 1 from pg_trigger where tgname = 'requests_bot' and not tgisinternal),
+    'Payment messages', exists (select 1 from pg_trigger where tgname = 'payments_bot' and not tgisinternal),
+    'Announcement alerts to everyone', exists (select 1 from pg_trigger where tgname = 'announcements_broadcast' and not tgisinternal),
+    'Chat accepts bot messages', coalesce((select is_nullable = 'YES' from information_schema.columns where table_schema = 'public' and table_name = 'messages' and column_name = 'sender_id'), false),
+    'Inbox', to_regclass('public.inbox') is not null,
+    'Bot chat', to_regclass('public.bot_chat') is not null,
+    'M-Pesa messages read so far', (select count(*) from public.mpesa_messages),
+    'Phone messages received in the last day', (select count(*) from public.sms_log where created_at > now() - interval '1 day')
+  );
+end $$;
+` },
+  { name: '14 Chat and announcements', sql: `
+create table if not exists public.bot_chats (id uuid primary key default gen_random_uuid(), user_id uuid not null references public.profiles(id) on delete cascade, role text not null check (role in ('user','bot','admin')), body text not null, escalated boolean not null default false, answered boolean not null default false, created_at timestamptz not null default now());
+alter table public.bot_chats enable row level security;
+drop policy if exists "chat read" on public.bot_chats;
+create policy "chat read" on public.bot_chats for select using (user_id = auth.uid() or public.is_admin());
+create or replace function public.forward_chat(p_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  update public.bot_chats set escalated = true where id = p_id and user_id = auth.uid() and role = 'user';
+  if found then
+    insert into public.inbox (user_id, body) select id, 'A student sent a question for you. Open Admin, Bot.' from public.profiles where role = 'admin';
+  end if;
+end $$;
+grant execute on function public.forward_chat(uuid) to authenticated;
+create or replace function public.admin_reply(p_user uuid, p_text text, p_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Admins only'; end if;
+  insert into public.bot_chats (user_id, role, body) values (p_user, 'admin', p_text);
+  update public.bot_chats set answered = true where id = p_id;
+  perform public.bot_tell(p_user, 'The admin answered your question. Open Ask the Bot to read it.');
+end $$;
+grant execute on function public.admin_reply(uuid, text, uuid) to authenticated;
+create or replace function public.bot_on_announcement() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.inbox (user_id, body) select id, 'New announcement: ' || new.title || '. ' || left(new.body, 160) from public.profiles;
+  return new;
+end $$;
+create or replace trigger announcements_bot after insert on public.announcements for each row execute function public.bot_on_announcement();
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'bot_chats') then
+    alter publication supabase_realtime add table public.bot_chats;
+  end if;
+end $$;
 ` },
 ];
 
