@@ -31,15 +31,15 @@ Deno.serve(async (req) => {
     const msg = String((await req.json()).message ?? '').trim().slice(0, 500);
     if (!msg) return reply({ ok: false, error: 'Type a question.' });
     const since = new Date(Date.now() - 3600000).toISOString();
-    const { count } = await admin.from('bot_chats').select('id', { count: 'exact', head: true }).eq('user_id', user.id).eq('role', 'user').gte('created_at', since);
+    const { count } = await admin.from('bot_chat').select('id', { count: 'exact', head: true }).eq('user_id', user.id).eq('role', 'user').gte('created_at', since);
     if ((count ?? 0) >= 30) return reply({ ok: false, error: 'You have asked many questions. Please try again later.' });
-    const { data: q } = await admin.from('bot_chats').insert({ user_id: user.id, role: 'user', body: msg }).select('id').single();
+    const { data: q } = await admin.from('bot_chat').insert({ user_id: user.id, role: 'user', body: msg }).select('id').single();
     const { data: svcs }: any = await admin.from('services').select('title, description, free, price_live, price_full');
     let answer = '';
     const key = env('ANTHROPIC_API_KEY');
     if (key) {
       try {
-        const { data: hist }: any = await admin.from('bot_chats').select('role, body').eq('user_id', user.id).order('created_at', { ascending: false }).limit(6);
+        const { data: hist }: any = await admin.from('bot_chat').select('role, body').eq('user_id', user.id).order('created_at', { ascending: false }).limit(6);
         const talk = (hist ?? []).reverse().map((h: any) => `${h.role}: ${h.body}`).join('\n');
         const kb = FAQ + '\nSERVICES:\n' + (svcs ?? []).map((s: any) => `- ${s.title}: ${s.description} ${s.free ? 'Free.' : 'Done for you KES ' + (s.price_full ?? '?') + (s.price_live ? ', live help KES ' + s.price_live : '')}`).join('\n');
         const r = await fetch('https://api.anthropic.com/v1/messages', {
@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
     }
     if (!answer) answer = rules(msg, svcs ?? []);
     const esc = answer.includes('ESCALATE');
-    await admin.from('bot_chats').insert({ user_id: user.id, role: 'bot', body: esc ? SORRY : answer.trim() });
+    await admin.from('bot_chat').insert({ user_id: user.id, role: 'bot', body: esc ? SORRY : answer.trim(), can_forward: esc });
     return reply({ ok: true, canForward: esc, question_id: q?.id });
   } catch (e) {
     return reply({ ok: false, error: String((e as Error)?.message ?? e) });
