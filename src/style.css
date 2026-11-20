@@ -100,3 +100,14 @@ a.cta{text-decoration:none}
 .bub small{display:block;color:var(--muted);font-size:.72rem;margin-bottom:2px}
 .chatbar{display:flex;gap:8px;align-items:center;margin-top:12px}
 .chatbar input{margin:0}
+.stickytop{position:sticky;top:0;z-index:20}
+.stickytop .top{position:static}
+.apkbar{display:flex;align-items:center;gap:10px;padding:8px 14px;background:linear-gradient(90deg,#00e5ff,#19a9ff);color:#02222a;text-decoration:none;border-bottom:1px solid rgba(0,0,0,.3);box-shadow:0 3px 16px rgba(0,229,255,.35)}
+.apkbar .apkic{flex:none;display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:#02222a;color:var(--cy)}
+.apkbar .apktx{flex:1;min-width:0;display:grid;line-height:1.15}
+.apkbar .apktx b{font-size:.98rem}
+.apkbar .apktx small{font-size:.74rem;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.apkbar .apkgo{flex:none;background:#02222a;color:#fff;font-weight:800;font-size:.88rem;white-space:nowrap;border-radius:10px;padding:9px 12px;animation:apkpulse 2s ease-in-out infinite}
+.apkbar.compact{border-radius:14px;margin:0 0 14px;padding:10px 12px;border:0}
+@keyframes apkpulse{0%,100%{box-shadow:0 0 0 0 rgba(2,34,42,.55)}50%{box-shadow:0 0 0 6px rgba(2,34,42,0)}}
+@media (prefers-reduced-motion:reduce){.apkbar .apkgo{animation:none}}

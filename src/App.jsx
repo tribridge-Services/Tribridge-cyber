@@ -13,6 +13,7 @@ const CATS = [['id_front', 'National ID, front'], ['id_back', 'National ID, back
 const CONSENT = 'I consent to Tribridge Cyber handling and processing the details and documents I give, only to help me with my applications. I confirm the details are true. I am 18 or older, or my parent or guardian agrees.';
 const AWARE = 'I have read the Privacy Policy and I am aware of how Tribridge Cyber handles my data.';
 const APK_URL = import.meta.env.VITE_APK_URL || '';
+const APK_LINK = APK_URL || '/tribridge-cyber.apk';
 const COUNTIES = ['Mombasa', 'Kwale', 'Kilifi', 'Tana River', 'Lamu', 'Taita Taveta', 'Garissa', 'Wajir', 'Mandera', 'Marsabit', 'Isiolo', 'Meru', 'Tharaka-Nithi', 'Embu', 'Kitui', 'Machakos', 'Makueni', 'Nyandarua', 'Nyeri', 'Kirinyaga', "Murang'a", 'Kiambu', 'Turkana', 'West Pokot', 'Samburu', 'Trans Nzoia', 'Uasin Gishu', 'Elgeyo-Marakwet', 'Nandi', 'Baringo', 'Laikipia', 'Nakuru', 'Narok', 'Kajiado', 'Kericho', 'Bomet', 'Kakamega', 'Vihiga', 'Bungoma', 'Busia', 'Siaya', 'Kisumu', 'Homa Bay', 'Migori', 'Kisii', 'Nyamira', 'Nairobi'];
 const QKEY = 'tb_queue';
 const getQ = () => { try { return JSON.parse(localStorage.getItem(QKEY) || '[]'); } catch (e) { return []; } };
@@ -74,6 +75,7 @@ function score(p, pts, t) {
   return Math.sqrt((r / 48) * (t / 84)) * 48;
 }
 const IC = {
+  dl: 'M12 3v12|M7 11l5 5 5-5|M5 20h14',
   home: 'M3 11l9-8 9 8|M5 10v10h5v-6h4v6h5V10', book: 'M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z|M4 19V5|M19 17H6', grid: 'M4 4h7v7H4z|M13 4h7v7h-7z|M4 13h7v7H4z|M13 13h7v7h-7z',
   list: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01', user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z|M4 21a8 8 0 0 1 16 0', menu: 'M4 6h16M4 12h16M4 18h16', x: 'M6 6l12 12M18 6L6 18',
   ok: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z|M8 12l3 3 5-6', calc: 'M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z|M8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01',
@@ -157,6 +159,17 @@ function DownloadBtn({ url }) {
   if (state === 'checking') return <span className="tag">Checking the download...</span>;
   if (state === 'missing') return <p className="err">The app file is not on the website yet. Put tribridge-cyber.apk in the public folder of the site and redeploy.</p>;
   return <><a className="cta sm" href={url} download="Tribridge-Cyber.apk">Download the app</a><p className="note">If nothing downloads, open this page in Chrome, not inside WhatsApp or Instagram, and tap the button again. If your phone warns about the file, choose Download anyway.</p></>;
+}
+
+function ApkBar({ compact }) {
+  if (isApp) return null;
+  return (
+    <a className={'apkbar' + (compact ? ' compact' : '')} href={APK_LINK} download="Tribridge-Cyber.apk">
+      <span className="apkic"><Ic n="dl" s={22} /></span>
+      <span className="apktx"><b>Get the Android app</b><small>Free. Faster. Tap to install.</small></span>
+      <span className="apkgo">Download APK</span>
+    </a>
+  );
 }
 
 function Home({ go, me }) {
@@ -754,6 +767,7 @@ function Drawer({ me, page, admin, go, onClose }) {
       <div className="scrim" onClick={onClose} />
       <aside className="drawer">
         <div className="hd"><span>MENU</span><button onClick={onClose} aria-label="Close menu"><Ic n="x" /></button></div>
+        <ApkBar compact />
         {items.map(([k, l, ic, soon]) => (
           <button key={k} className={'nav' + (page === k ? ' on' : '')} onClick={() => go(k)}><Ic n={ic} />{l}{soon && <span className="soon">SOON</span>}</button>
         ))}
@@ -1336,6 +1350,7 @@ export default function App() {
   return (
     <>
       {banner && <div className="toast bannerfix" onClick={() => { setBanner(''); go('inbox'); }}>{banner}</div>}
+      <div className="stickytop">
       <header className="top">
         <button onClick={() => go('home')} aria-label="Home"><Brand /></button>
         <div className="right">
@@ -1344,6 +1359,8 @@ export default function App() {
           <button onClick={() => setMenu(true)} aria-label="Open menu"><Ic n="menu" s={26} /></button>
         </div>
       </header>
+      <ApkBar />
+      </div>
       <main>
         {view === 'home' && <Home go={go} me={me} />}
         {view === 'guide' && <Guide go={go} />}
