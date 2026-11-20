@@ -11,9 +11,33 @@
     <meta name="description" content="Tribridge Cyber guides Kenyan KCSE leavers online through ID, KRA PIN, KUCCPS, HEF and HELB, SHA and eCitizen. Free advice. Pay only when we apply for you." />
     <meta property="og:title" content="Tribridge Cyber" />
     <meta property="og:description" content="Your bridge from KCSE to your career. All services online." />
+    <style>
+      /* start-up loader: shows instantly, before the app code arrives. Icons of what we do switch one by one. */
+      html,body{margin:0;background:#050b14}
+      .bootld{--step:.7s;--n:7;min-height:100vh;min-height:100dvh;display:grid;place-content:center;justify-items:center;gap:18px;color:#e8f1f6;font-family:"Space Grotesk","Segoe UI",system-ui,sans-serif}
+      .ldwrap{position:relative;width:132px;height:132px;display:grid;place-items:center}
+      .ldspin{position:absolute;inset:0;border-radius:50%;border:3px solid rgba(0,229,255,.14);border-top-color:#00e5ff;animation:ldspin 1.1s linear infinite}
+      .ldtile{position:relative;width:88px;height:88px;border-radius:24px;border:1px solid #123a44;background:#06131c;box-shadow:inset 0 0 30px rgba(0,229,255,.16),0 0 28px rgba(0,229,255,.12)}
+      .ldic{position:absolute;inset:0;display:grid;place-items:center;color:#00e5ff;opacity:0;animation:ldswap calc(var(--n)*var(--step)) linear infinite;animation-delay:calc(var(--i)*var(--step))}
+      .ldic:nth-child(even){color:#7ef0c4}
+      .ldic svg{width:42px;height:42px;filter:drop-shadow(0 0 7px currentColor)}
+      .ldwm{text-align:center;line-height:1}
+      .ldwm b{display:block;font-size:1.35rem;letter-spacing:.02em}
+      .ldwm span{display:block;margin-top:5px;font:700 .72rem "JetBrains Mono",ui-monospace,monospace;letter-spacing:.32em;color:#00e5ff}
+      .ldcaps{position:relative;width:220px;height:1.5em;text-align:center;color:#9fb3c0;font-size:.95rem}
+      .ldcap{position:absolute;left:0;right:0;top:0;opacity:0;animation:ldcap calc(var(--n)*var(--step)) linear infinite;animation-delay:calc(var(--i)*var(--step))}
+      .lddots{display:flex;gap:7px}
+      .lddots i{display:block;width:7px;height:7px;border-radius:50%;background:#123a44;animation:lddot calc(var(--n)*var(--step)) linear infinite;animation-delay:calc(var(--i)*var(--step))}
+      @keyframes ldspin{to{transform:rotate(360deg)}}
+      @keyframes ldswap{0%{opacity:0;transform:scale(.4) rotate(-24deg)}2.5%{opacity:1;transform:scale(1.1) rotate(0)}4.5%{opacity:1;transform:scale(1)}11%{opacity:1;transform:scale(1)}14.28%{opacity:0;transform:scale(.4) rotate(24deg)}100%{opacity:0;transform:scale(.4)}}
+      @keyframes ldcap{0%{opacity:0;transform:translateY(8px)}3%{opacity:1;transform:none}11%{opacity:1;transform:none}14.28%{opacity:0;transform:translateY(-8px)}100%{opacity:0}}
+      @keyframes lddot{0%{background:#00e5ff;transform:scale(1.5)}14.28%{background:#123a44;transform:scale(1)}100%{background:#123a44;transform:scale(1)}}
+      @keyframes ldfade{0%{opacity:0}3%{opacity:1}11%{opacity:1}14.28%{opacity:0}100%{opacity:0}}
+      @media (prefers-reduced-motion:reduce){.ldic,.ldcap{animation-name:ldfade}.ldspin{animation-duration:3s}}
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="bootld" role="status" aria-label="Loading"><div class="ldwrap"><div class="ldspin"></div><div class="ldtile"><span class="ldic" style="--i:0"><svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9l10-5 10 5-10 5z"></path><path d="M6 11v5c3 2.5 9 2.5 12 0v-5"></path></svg></span><span class="ldic" style="--i:1"><svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18v12H3z"></path><path d="M7 10h4v4H7z"></path><path d="M14 10h4M14 14h4"></path></svg></span><span class="ldic" style="--i:2"><svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"></path><path d="M14 3v5h5M9 13h6M9 17h6"></path></svg></span><span class="ldic" style="--i:3"><svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M3 7l2-3h12M16 14h2"></path></svg></span><span class="ldic" style="--i:4"><svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20s-8-5-8-11a4.5 4.5 0 0 1 8-2.5A4.5 4.5 0 0 1 20 9c0 6-8 11-8 11z"></path></svg></span><span class="ldic" style="--i:5"><svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-5 9 5"></path><path d="M5 9v9M9 9v9M15 9v9M19 9v9M3 20h18"></path></svg></span><span class="ldic" style="--i:6"><svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"></path><path d="M8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01"></path></svg></span></div></div><div class="ldwm"><b>TRIBRIDGE</b><span>CYBER</span></div><div class="ldcaps"><span class="ldcap" style="--i:0">KUCCPS</span><span class="ldcap" style="--i:1">National ID</span><span class="ldcap" style="--i:2">KRA PIN</span><span class="ldcap" style="--i:3">HEF / HELB</span><span class="ldcap" style="--i:4">SHA</span><span class="ldcap" style="--i:5">eCitizen</span><span class="ldcap" style="--i:6">Course analyzer</span></div><div class="lddots"><i style="--i:0"></i><i style="--i:1"></i><i style="--i:2"></i><i style="--i:3"></i><i style="--i:4"></i><i style="--i:5"></i><i style="--i:6"></i></div></div></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

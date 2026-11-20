@@ -172,6 +172,21 @@ function ApkBar({ compact }) {
   );
 }
 
+const LOAD_ITEMS = [['cap', 'KUCCPS'], ['id', 'National ID'], ['doc', 'KRA PIN'], ['wallet', 'HEF / HELB'], ['heart', 'SHA'], ['bank', 'eCitizen'], ['calc', 'Course analyzer']];
+function Boot() {
+  return (
+    <div className="bootld" role="status" aria-label="Loading">
+      <div className="ldwrap">
+        <div className="ldspin" />
+        <div className="ldtile">{LOAD_ITEMS.map(([n], i) => <span key={n} className="ldic" style={{ '--i': i }}><Ic n={n} s={42} /></span>)}</div>
+      </div>
+      <div className="ldwm"><b>TRIBRIDGE</b><span>CYBER</span></div>
+      <div className="ldcaps">{LOAD_ITEMS.map(([n, t], i) => <span key={n} className="ldcap" style={{ '--i': i }}>{t}</span>)}</div>
+      <div className="lddots">{LOAD_ITEMS.map(([n], i) => <i key={n} style={{ '--i': i }} />)}</div>
+    </div>
+  );
+}
+
 function Home({ go, me }) {
   return (
     <>
@@ -1340,8 +1355,8 @@ export default function App() {
     sb.rpc('remind_missed').then(({ data }) => { if (data > 0) setBanner(`Welcome back! You missed ${data} update${data > 1 ? 's' : ''}. Tap to read.`); });
   }, [uid]);
 
-  if (session === undefined) return <div className="boot">Tribridge Cyber</div>;
-  if (uid && !me) return <div className="boot">Loading</div>;
+  if (session === undefined) return <Boot />;
+  if (uid && !me) return <Boot />;
   const admin = ['admin', 'staff'].includes(me?.role) && isApp;
   const gated = ['requests', 'account', 'news', 'feedback', 'inbox', 'bot'].includes(page) || (page === 'admin' && !admin);
   const view = !me && gated ? 'auth' : page;
